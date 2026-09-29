@@ -222,7 +222,7 @@ export function vmAgentPermissionNotes(os: AgentOS, method: AgentInstallMethod):
   }
   if (os === "WINDOWS") {
     return [
-      "Paste into PowerShell. Run PowerShell as Administrator -- it writes to C:\\ProgramData\\InfraHub.",
+      "Paste into PowerShell. If it reports \"Access is denied\" writing C:\\ProgramData\\InfraHub, run PowerShell as Administrator.",
       "If SmartScreen or Defender blocks the download, allow it (Unblock-File is already included) or add C:\\ProgramData\\InfraHub as an exclusion.",
       "The agent runs until sign-out; to keep it running after reboot, add it to Task Scheduler (At startup, run whether user is logged on or not).",
       reach,
