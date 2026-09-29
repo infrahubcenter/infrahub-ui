@@ -13,7 +13,8 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "
 import { CopyButton } from "@/components/infrastructure/copy-button";
 import { DeleteResourceDialog } from "@/components/infrastructure/delete-resource-dialog";
 import { VMAgentInstallSection } from "@/components/infrastructure/vm-agent-install-section";
-import { buildAgentInstallCommand, defaultInstallMethodFor, type AgentOS, type AgentInstallMethod } from "@/lib/agent-install-command";
+import { buildAgentInstallCommand, defaultInstallMethodFor, vmAgentPermissionNotes, type AgentOS, type AgentInstallMethod } from "@/lib/agent-install-command";
+import { InstallNotes } from "@/components/infrastructure/install-notes";
 import {
   ApiError,
   listVMs,
@@ -289,9 +290,10 @@ function AgentTokenReveal({
         )}
         <p className="mt-2 text-xs text-slate-500">{runHint(os, method)}</p>
         <div className="mt-1 flex items-start gap-2">
-          <pre className="flex-1 overflow-x-auto whitespace-pre-wrap break-all rounded bg-slate-900 p-2 text-xs text-slate-100">{runCommand}</pre>
+          <pre className="flex-1 overflow-x-auto whitespace-pre rounded bg-slate-900 p-2 text-xs text-slate-100">{runCommand}</pre>
           <CopyButton value={runCommand} />
         </div>
+        <InstallNotes notes={vmAgentPermissionNotes(os, method)} />
         <Button variant="ghost" size="sm" className="mt-2" onClick={onDismiss}>
           Dismiss
         </Button>

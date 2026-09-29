@@ -5,6 +5,8 @@ import { Container, Plug, Trash2 } from "lucide-react";
 import { RouteGuard } from "@/components/auth/route-guard";
 import { DeleteResourceDialog } from "@/components/infrastructure/delete-resource-dialog";
 import { CopyButton } from "@/components/infrastructure/copy-button";
+import { InstallNotes } from "@/components/infrastructure/install-notes";
+import { DOCKER_HOST_PERMISSION_NOTES, formatShellCommand } from "@/lib/agent-install-command";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -276,11 +278,12 @@ function AgentTokenReveal({
           Run this on any machine with Docker, wherever you want to monitor from:
         </p>
         <div className="mt-1 flex items-start gap-2">
-          <pre className="flex-1 overflow-x-auto whitespace-pre-wrap break-all rounded bg-slate-900 p-2 text-xs text-slate-100">
-            {runCommand}
+          <pre className="flex-1 overflow-x-auto whitespace-pre rounded bg-slate-900 p-2 text-xs text-slate-100">
+            {formatShellCommand(runCommand)}
           </pre>
-          <CopyButton value={runCommand} />
+          <CopyButton value={formatShellCommand(runCommand)} />
         </div>
+        <InstallNotes notes={DOCKER_HOST_PERMISSION_NOTES} />
         <Button variant="ghost" size="sm" className="mt-2" onClick={onDismiss}>
           Dismiss
         </Button>

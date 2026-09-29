@@ -6,6 +6,8 @@ import { Layers, Plug, RefreshCw, Trash2 } from "lucide-react";
 import { RouteGuard } from "@/components/auth/route-guard";
 import { DeleteResourceDialog } from "@/components/infrastructure/delete-resource-dialog";
 import { CopyButton } from "@/components/infrastructure/copy-button";
+import { InstallNotes } from "@/components/infrastructure/install-notes";
+import { K8S_PERMISSION_NOTES } from "@/lib/agent-install-command";
 import { K8sConnectionStatusBadge } from "@/components/infrastructure/k8s-status-badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -284,9 +286,10 @@ function AgentTokenReveal({
   const k8sInstallCommand =
     `kubectl create namespace infrahub-agent\n` +
     `kubectl create secret generic infrahub-k8s-agent -n infrahub-agent \\\n` +
-    `  --from-literal=backend-url=${backendUrl} \\\n` +
-    `  --from-literal=agent-token=${token}\n` +
-    `kubectl apply -f ${K8S_AGENT_MANIFEST_URL}`;
+    `  --from-literal=backend-url='${backendUrl}' \\\n` +
+    `  --from-literal=agent-token='${token}'\n` +
+    `kubectl apply -f ${K8S_AGENT_MANIFEST_URL}\n` +
+    `kubectl -n infrahub-agent rollout status deploy/infrahub-k8s-agent`;
   return (
     <Alert>
       <AlertDescription>
@@ -305,6 +308,7 @@ function AgentTokenReveal({
           <pre className="flex-1 overflow-x-auto rounded bg-slate-900 p-2 text-xs text-slate-100">{k8sInstallCommand}</pre>
           <CopyButton value={k8sInstallCommand} />
         </div>
+        <InstallNotes notes={K8S_PERMISSION_NOTES} />
         <p className="mt-2 text-xs text-slate-500">
           Already ran this before and got &quot;AlreadyExists&quot; on the namespace/secret? That&apos;s fine to
           ignore -- just make sure the last <code>kubectl apply -f …manifest.yaml</code> line above actually ran;
