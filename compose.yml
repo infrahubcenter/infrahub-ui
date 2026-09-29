@@ -1,0 +1,20 @@
+# Standalone production deployment of JUST the frontend -- for deploying
+# infrahub-ui independently of infrahub-api/Postgres, e.g. onto its own
+# compute or a static-friendly host. To run the whole stack together
+# instead, see docker-compose.prod.yml at the repo root.
+#
+#   docker compose up -d --build
+#
+# NEXT_PUBLIC_API_BASE_URL is inlined into the browser bundle at BUILD
+# time (see Dockerfile) -- it must be the real, publicly-reachable
+# backend URL the viewer's browser will call; rebuild this image if it
+# ever changes.
+services:
+  infrahub-ui:
+    build:
+      context: .
+      args:
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:?NEXT_PUBLIC_API_BASE_URL is required, see docs/deployment.md}
+    restart: unless-stopped
+    ports:
+      - "3000:3000"

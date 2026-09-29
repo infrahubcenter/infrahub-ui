@@ -1,0 +1,17 @@
+node_modules
+.next
+out
+.env
+.env.*
+!.env.example
+.git
+npm-debug.log*
+.master.key
+.infrahub_cookies.txt
+*.log
+tmp_*.json
+debug-view-btn.mjs
+monitoring-logs-test.mjs
+start.sh
+compose*.yml
+tsconfig.tsbuildinfo

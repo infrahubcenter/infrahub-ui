@@ -1,0 +1,22 @@
+# Fully containerized local run of JUST the frontend -- builds and runs
+# the actual production image locally, distinct from the day-to-day dev
+# flow (`npm run dev`, see README.md). Defaults to a backend already
+# running on the host at :8080 (bare `go run ./cmd/server`, or
+# infrahub-api/compose.local.yml's own port mapping) -- override
+# NEXT_PUBLIC_API_BASE_URL if that backend lives somewhere else.
+#
+#   docker compose -f compose.local.yml up -d --build
+#
+# NEXT_PUBLIC_API_BASE_URL is inlined into the browser bundle at build
+# time (see Dockerfile), so this value is what the VIEWER's browser
+# reaches, not this container -- "localhost:8080" is correct here even
+# though it wouldn't resolve from inside the container itself.
+services:
+  infrahub-ui:
+    build:
+      context: .
+      args:
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8080}
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
