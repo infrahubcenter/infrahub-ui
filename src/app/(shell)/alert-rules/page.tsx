@@ -212,14 +212,24 @@ export function AlertRulesContent() {
           <SeverityBadge severity={item.rule.severity} />
         </TableCell>
         <TableCell>
-          <Button
-            variant={item.rule.enabled ? "secondary" : "outline"}
-            size="sm"
-            disabled={busyId === item.rule.id}
-            onClick={() => handleToggleEnabled(item)}
-          >
-            {item.rule.enabled ? "Enabled" : "Disabled"}
-          </Button>
+          {/* Status and action are separate: the old single button showed the
+              current state ("Enabled") but clicking it turned the rule off,
+              which read like a confirmation and silently disabled rules. */}
+          <div className="flex items-center gap-2">
+            <span
+              className={
+                item.rule.enabled
+                  ? "inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700 ring-1 ring-inset ring-emerald-200"
+                  : "inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600 ring-1 ring-inset ring-slate-200"
+              }
+            >
+              <span className={item.rule.enabled ? "h-1.5 w-1.5 rounded-full bg-emerald-500" : "h-1.5 w-1.5 rounded-full bg-slate-400"} />
+              {item.rule.enabled ? "Enabled" : "Disabled"}
+            </span>
+            <Button variant="outline" size="sm" disabled={busyId === item.rule.id} onClick={() => handleToggleEnabled(item)}>
+              {item.rule.enabled ? "Disable" : "Enable"}
+            </Button>
+          </div>
         </TableCell>
         <TableCell className="text-slate-600">
           {item.rule.suppressed_until ? (
