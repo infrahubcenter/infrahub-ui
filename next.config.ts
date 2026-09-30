@@ -1,12 +1,17 @@
 import type { NextConfig } from "next";
 
+// Vercel sets VERCEL=1 during its builds and packages the app itself; the
+// Docker-only standalone output and tracing tweaks break its packaging step.
+const onVercel = Boolean(process.env.VERCEL);
+
 const nextConfig: NextConfig = {
   // Traces only the files a production server actually needs into
   // .next/standalone (including a minimal server.js) -- see
   // docs/deployment.md and infrahub-ui/Dockerfile, which depend on this
   // to build a lean production image without installing node_modules
   // into it. Has no effect on `next dev`/`next start` local development.
-  output: "standalone",
+  // Not used on Vercel (see onVercel).
+  ...(onVercel ? {} : { output: "standalone" as const }),
   // `next dev` checks the request's Origin/Referer *hostname* (port is
   // NOT part of the check -- see next/dist/server/lib/router-utils/
   // block-cross-site-dev.js) against this list plus its own always-on
@@ -25,9 +30,13 @@ const nextConfig: NextConfig = {
   // native bundle are left out of the standalone output -- a much smaller
   // production image (see Dockerfile).
   images: { unoptimized: true },
-  outputFileTracingExcludes: {
-    "*": ["node_modules/@img/**", "node_modules/sharp/**"],
-  },
+  ...(onVercel
+    ? {}
+    : {
+        outputFileTracingExcludes: {
+          "*": ["node_modules/@img/**", "node_modules/sharp/**"],
+        },
+      }),
 };
 
 export default nextConfig;

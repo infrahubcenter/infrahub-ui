@@ -7,6 +7,7 @@
 //
 //   INFRAHUB_PLAN            community | team | business | enterprise
 //   INFRAHUB_MARKETING_URL   public pricing/marketing site
+//   INFRAHUB_WS_BASE_URL     API's public wss:// origin when hosted elsewhere
 //
 // NEXT_PUBLIC_INFRAHUB_PLAN / NEXT_PUBLIC_MARKETING_URL (.env.local) still
 // work as build-time fallbacks for local development.
@@ -14,6 +15,9 @@
 export type RuntimeConfig = {
   plan?: string;
   marketingUrl?: string;
+  // Public wss:// origin of the API when the console is hosted on another
+  // site (INFRAHUB_WS_BASE_URL) -- see lib/ws.ts.
+  wsBaseUrl?: string;
 };
 
 declare global {
@@ -26,6 +30,7 @@ export function serverRuntimeConfig(): RuntimeConfig {
   return {
     plan: process.env.INFRAHUB_PLAN || process.env.NEXT_PUBLIC_INFRAHUB_PLAN || undefined,
     marketingUrl: process.env.INFRAHUB_MARKETING_URL || process.env.NEXT_PUBLIC_MARKETING_URL || undefined,
+    wsBaseUrl: process.env.INFRAHUB_WS_BASE_URL || undefined,
   };
 }
 

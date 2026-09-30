@@ -2,6 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { ApiError, getMe, logout as apiLogout, type User } from "@/lib/api";
+import { clearWsTicket, refreshWsTicket, startWsTicketRefresh } from "@/lib/ws";
 
 type AuthState = {
   user: User | null;
@@ -19,6 +20,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const refresh = useCallback(async () => {
     try {
       const me = await getMe();
+      // A console hosted apart from its API needs a WebSocket ticket before
+      // any live view opens a socket (no-op otherwise -- see lib/ws.ts).
+      await refreshWsTicket();
       setUser(me);
       return me;
     } catch (err) {
@@ -43,10 +47,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Keep the WebSocket ticket fresh while signed in.
+  useEffect(() => {
+    if (!user) return;
+    return startWsTicketRefresh();
+  }, [user]);
+
   const logout = useCallback(async () => {
     try {
       await apiLogout();
     } finally {
+      clearWsTicket();
       setUser(null);
     }
   }, []);

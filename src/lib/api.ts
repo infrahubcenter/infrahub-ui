@@ -2,6 +2,7 @@
 // (a dependency-free helpers module) -- imported here rather than
 // redeclared, so there's exactly one MonitoringResourceType in the app.
 import type { MonitoringResourceType } from "@/lib/monitoring";
+import { wsBaseFor, withWsTicket } from "@/lib/ws";
 
 // Empty by default -- every request below is a relative URL ("/api/...").
 // The browser resolves that against whatever origin the page itself was
@@ -310,9 +311,9 @@ export function deleteVM(id: string, confirmationName: string) {
 // always waits regardless of this flag (the backend decides that half on
 // its own); this only ever matters for a VM that already has a saved key.
 export function vmConsoleUrl(vmId: string, rows: number, cols: number, useEphemeralKey = false): string {
-  const wsBase = API_BASE.replace(/^http/, "ws");
+  const wsBase = wsBaseFor(API_BASE);
   const ephemeral = useEphemeralKey ? "&use_ephemeral_key=1" : "";
-  return `${wsBase}/api/vms/${vmId}/console?rows=${rows}&cols=${cols}${ephemeral}`;
+  return withWsTicket(`${wsBase}/api/vms/${vmId}/console?rows=${rows}&cols=${cols}${ephemeral}`);
 }
 
 export type VMConsoleInboundFrame =
@@ -580,8 +581,8 @@ export function getVMAgentMetricsHistory(vmId: string, minutes = 60) {
 // immediately on connect. Each frame is the exact same shape as
 // VMAgentMetrics/getVMAgentMetricsCurrent's response.
 export function vmAgentMetricsStreamUrl(vmId: string): string {
-  const wsBase = API_BASE.replace(/^http/, "ws");
-  return `${wsBase}/api/vms/${vmId}/vm-agent/metrics/stream`;
+  const wsBase = wsBaseFor(API_BASE);
+  return withWsTicket(`${wsBase}/api/vms/${vmId}/vm-agent/metrics/stream`);
 }
 
 // --- VM Agent logs (journald-backed, live-only) ---
@@ -602,8 +603,8 @@ export function getVMAgentRecentLogs(vmId: string, params: { since?: string } = 
 }
 
 export function vmAgentLogsStreamUrl(vmId: string): string {
-  const wsBase = API_BASE.replace(/^http/, "ws");
-  return `${wsBase}/api/vms/${vmId}/vm-agent/logs/stream`;
+  const wsBase = wsBaseFor(API_BASE);
+  return withWsTicket(`${wsBase}/api/vms/${vmId}/vm-agent/logs/stream`);
 }
 
 export type VMAgentLogsInboundFrame =
@@ -702,8 +703,8 @@ export function testDockerAgentConnection(vmId: string) {
 // an admin sees the real remote commands run instead of a single
 // black-box outcome. Admin-only (enforced server-side).
 export function dockerAgentInstallStreamUrl(vmId: string): string {
-  const wsBase = API_BASE.replace(/^http/, "ws");
-  return `${wsBase}/api/vms/${vmId}/docker-agent/install-stream`;
+  const wsBase = wsBaseFor(API_BASE);
+  return withWsTicket(`${wsBase}/api/vms/${vmId}/docker-agent/install-stream`);
 }
 
 export type DockerAgentInstallStreamFrame =
@@ -887,8 +888,8 @@ export function getDockerHostSystemMetrics(hostId: string) {
 // The live-logs WebSocket URL for a Docker Host's container -- mirrors
 // dockerLogsStreamUrl exactly, just under the Docker Host route tree.
 export function dockerHostContainerLogsStreamUrl(hostId: string, containerId: string): string {
-  const wsBase = API_BASE.replace(/^http/, "ws");
-  return `${wsBase}/api/docker/hosts/${hostId}/containers/${containerId}/logs/stream`;
+  const wsBase = wsBaseFor(API_BASE);
+  return withWsTicket(`${wsBase}/api/docker/hosts/${hostId}/containers/${containerId}/logs/stream`);
 }
 
 // Searches a Docker Host container's background-captured history (see
@@ -1676,8 +1677,8 @@ export function getDockerContainerMetricsHistory(
 // directly (its own session cookie is sent automatically on the
 // same-site upgrade request), never routed through apiFetch.
 export function dockerContainerStatsStreamUrl(vmId: string, containerId: string): string {
-  const wsBase = API_BASE.replace(/^http/, "ws");
-  return `${wsBase}/api/vms/${vmId}/docker/containers/${containerId}/stats/stream`;
+  const wsBase = wsBaseFor(API_BASE);
+  return withWsTicket(`${wsBase}/api/vms/${vmId}/docker/containers/${containerId}/stats/stream`);
 }
 
 // --- Top-level Docker Monitoring/Logs section ---
@@ -1785,8 +1786,8 @@ export function searchDockerLogs(
 // stored server-side, matching how the Docker stats stream and VM Console
 // already work.
 export function dockerLogsStreamUrl(containerId: string): string {
-  const wsBase = API_BASE.replace(/^http/, "ws");
-  return `${wsBase}/api/docker/containers/${containerId}/logs/stream`;
+  const wsBase = wsBaseFor(API_BASE);
+  return withWsTicket(`${wsBase}/api/docker/containers/${containerId}/logs/stream`);
 }
 
 export type DockerLogsInboundFrame =
@@ -1942,7 +1943,7 @@ export function setK8sClusterMonitoring(id: string, enabled: boolean) {
 // externally-reachable tunnel URL the Docker/VM agents use -- is always
 // preferred; this only fires if that env var was left unconfigured.
 export function k8sAgentConnectUrl(): string {
-  const wsBase = API_BASE.replace(/^http/, "ws");
+  const wsBase = wsBaseFor(API_BASE);
   return `${wsBase}/api/k8s/agent/connect`;
 }
 
@@ -2090,8 +2091,8 @@ export function listK8sOverview(clusterResourceId?: string) {
 // The live-logs WebSocket URL -- same live-tail-only, nothing-stored-
 // server-side contract as dockerLogsStreamUrl above.
 export function k8sLogsStreamUrl(podId: string): string {
-  const wsBase = API_BASE.replace(/^http/, "ws");
-  return `${wsBase}/api/k8s/pods/${podId}/logs/stream`;
+  const wsBase = wsBaseFor(API_BASE);
+  return withWsTicket(`${wsBase}/api/k8s/pods/${podId}/logs/stream`);
 }
 
 export type K8sLogsInboundFrame =
@@ -2698,8 +2699,8 @@ export function getUpdateOperationLogs(operationId: string) {
 // latter meaning the operation reached a terminal status and the server
 // will close the connection.
 export function updateOperationLogsStreamUrl(operationId: string): string {
-  const wsBase = API_BASE.replace(/^http/, "ws");
-  return `${wsBase}/api/update-operations/${operationId}/logs/stream`;
+  const wsBase = wsBaseFor(API_BASE);
+  return withWsTicket(`${wsBase}/api/update-operations/${operationId}/logs/stream`);
 }
 
 export type OperationStep = {
@@ -2819,8 +2820,8 @@ export function getRebootOperationLogs(operationId: string) {
 // Mirrors updateOperationLogsStreamUrl exactly -- same frame shape
 // ({type:"log",...} / {type:"done",...}), same same-site-cookie handshake.
 export function rebootOperationLogsStreamUrl(operationId: string): string {
-  const wsBase = API_BASE.replace(/^http/, "ws");
-  return `${wsBase}/api/reboot-operations/${operationId}/logs/stream`;
+  const wsBase = wsBaseFor(API_BASE);
+  return withWsTicket(`${wsBase}/api/reboot-operations/${operationId}/logs/stream`);
 }
 
 export type RebootVerificationCheckType =
@@ -3087,8 +3088,8 @@ export function getDatabaseMetricsHistory(databaseId: string, params?: { from?: 
 // Mirrors dockerContainerStatsStreamUrl exactly -- one shared backend
 // collector/cache, N viewers, never a new connection per viewer/tick.
 export function databaseMetricsStreamUrl(databaseId: string): string {
-  const wsBase = API_BASE.replace(/^http/, "ws");
-  return `${wsBase}/api/databases/${databaseId}/metrics/stream`;
+  const wsBase = wsBaseFor(API_BASE);
+  return withWsTicket(`${wsBase}/api/databases/${databaseId}/metrics/stream`);
 }
 
 // --- Deep / performance metrics ---
@@ -3169,8 +3170,8 @@ export function getDatabasePerformanceHistory(databaseId: string, params?: { fro
 // getDatabasePerformance per frame, or { type: "waiting", reason } before
 // the first deep collection cycle.
 export function databasePerformanceStreamUrl(databaseId: string): string {
-  const wsBase = API_BASE.replace(/^http/, "ws");
-  return `${wsBase}/api/databases/${databaseId}/performance/stream`;
+  const wsBase = wsBaseFor(API_BASE);
+  return withWsTicket(`${wsBase}/api/databases/${databaseId}/performance/stream`);
 }
 
 export function listDatabaseQueries(databaseId: string) {
@@ -3620,8 +3621,8 @@ export function getDatabaseOperationLogs(databaseId: string, operationId: string
 // Mirrors rebootOperationLogsStreamUrl exactly -- same frame shape
 // ({type:"log",...} / {type:"done",...}), same same-site-cookie handshake.
 export function databaseOperationLogsStreamUrl(databaseId: string, operationId: string): string {
-  const wsBase = API_BASE.replace(/^http/, "ws");
-  return `${wsBase}/api/databases/${databaseId}/operations/${operationId}/logs/stream`;
+  const wsBase = wsBaseFor(API_BASE);
+  return withWsTicket(`${wsBase}/api/databases/${databaseId}/operations/${operationId}/logs/stream`);
 }
 
 // Global cross-database operation history (Admin only) -- each item
@@ -4064,8 +4065,8 @@ export function getAlertsSummary() {
 // ACTIVE alerts (top 50), scoped server-side -- treat every frame as a
 // full replacement of "current active alerts," never an incremental diff.
 export function alertsStreamUrl(): string {
-  const wsBase = API_BASE.replace(/^http/, "ws");
-  return `${wsBase}/api/alerts/stream`;
+  const wsBase = wsBaseFor(API_BASE);
+  return withWsTicket(`${wsBase}/api/alerts/stream`);
 }
 
 export function getAlert(id: string) {

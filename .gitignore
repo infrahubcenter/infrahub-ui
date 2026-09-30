@@ -52,3 +52,6 @@ start.sh
 !.env.example
 /CLAUDE.md
 /AGENTS.md
+
+.vercel
+.env*
