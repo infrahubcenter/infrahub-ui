@@ -32,10 +32,17 @@ ENV NEXT_PUBLIC_MONITORING_REFRESH=$NEXT_PUBLIC_MONITORING_REFRESH
 RUN npm run build
 
 # --- Runtime stage ---
-FROM node:22-alpine AS runtime
+# Plain Alpine plus only the node binary (and the two C++ runtime libs it
+# links against) -- none of node:22-alpine's npm, npx, corepack and yarn,
+# which a standalone Next.js server never uses. Pinned to the same Alpine
+# release as node:22-alpine so the musl build of node matches.
+FROM node:22-alpine AS node
+FROM alpine:3.24 AS runtime
+RUN apk add --no-cache libstdc++ libgcc && \
+    addgroup -g 1001 -S app && adduser -S app -u 1001 -G app
+COPY --from=node /usr/local/bin/node /usr/local/bin/node
 WORKDIR /app
 ENV NODE_ENV=production
-RUN addgroup -g 1001 -S app && adduser -S app -u 1001 -G app
 
 # next.config.ts's output:"standalone" (Step 20) traces only the files a
 # production server actually needs into .next/standalone, including a

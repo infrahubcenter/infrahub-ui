@@ -20,6 +20,14 @@ const nextConfig: NextConfig = {
   // (`next start`/standalone), which doesn't have this dev-only
   // protection at all.
   allowedDevOrigins: ["dipping-sympathy-stadium.ngrok-free.dev", "127.0.0.1"],
+  // The console never uses next/image (every image is a static SVG via a
+  // plain <img>), so the image optimizer and its ~27 MB sharp/libvips
+  // native bundle are left out of the standalone output -- a much smaller
+  // production image (see Dockerfile).
+  images: { unoptimized: true },
+  outputFileTracingExcludes: {
+    "*": ["node_modules/@img/**", "node_modules/sharp/**"],
+  },
 };
 
 export default nextConfig;
