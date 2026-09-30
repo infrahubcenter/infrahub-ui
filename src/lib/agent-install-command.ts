@@ -304,16 +304,19 @@ export function detectDockerHostShell(): DockerHostShell {
   return "LINUX";
 }
 
+// The published Docker Host agent image (docker.io/infrahubcenter). Always
+// used, whatever image an older API build may still put in run_command --
+// the pre-rename docker.io/raamcloudops images must never be installed.
+export const DOCKER_HOST_AGENT_IMAGE = "docker.io/infrahubcenter/infrahub-docker-agent:1.0.0";
+
 export type DockerRunParts = { backendUrl: string; token: string; image: string };
 
-// Pulls the backend URL, token and image out of the backend's run_command,
-// so the image tag stays whatever the API currently pins.
+// Pulls the backend URL and token out of the backend's run_command.
 export function parseDockerHostRunCommand(cmd: string): DockerRunParts | null {
   const url = cmd.match(/INFRAHUB_BACKEND_URL='([^']*)'/)?.[1] ?? cmd.match(/INFRAHUB_BACKEND_URL=(\S+)/)?.[1];
   const token = cmd.match(/INFRAHUB_AGENT_TOKEN='([^']*)'/)?.[1] ?? cmd.match(/INFRAHUB_AGENT_TOKEN=(\S+)/)?.[1];
-  const image = cmd.trim().split(/\s+/).pop();
-  if (!url || !token || !image || image.startsWith("-")) return null;
-  return { backendUrl: url, token, image };
+  if (!url || !token) return null;
+  return { backendUrl: url, token, image: DOCKER_HOST_AGENT_IMAGE };
 }
 
 function cmdQuote(s: string): string {
