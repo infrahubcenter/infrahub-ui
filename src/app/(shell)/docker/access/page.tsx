@@ -7,7 +7,6 @@ import { RouteGuard } from "@/components/auth/route-guard";
 import { ConfirmDialog } from "@/components/infrastructure/confirm-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -44,7 +43,6 @@ import {
   revokeObjectStorageAccess,
   revokeVMAccess,
   type DatabaseListItem,
-  type DatabasePermission,
   type DockerAccessGrant,
   type DockerAccessPermission,
   type DockerHost,
@@ -53,13 +51,13 @@ import {
   type MonitoringFeature,
   type MonitoringFolder,
   type ObjectStorageListItem,
-  type ObjectStoragePermission,
   type PermissionGrant,
   type UserListItem,
   type VM,
   type Workspace,
   type WorkspaceMember,
 } from "@/lib/api";
+import { ACCESS_LEVELS, PERMISSION_TEXT } from "@/lib/access-levels";
 import {
   RESOURCE_TYPE_CHOICE_ITEM,
   RESOURCE_TYPE_CHOICE_LABEL,
@@ -75,26 +73,6 @@ const PERMISSION_LABELS: Record<DockerAccessPermission, string> = {
   "k8s.logs": "Kubernetes Log Explorer (view/tail)",
 };
 
-// Duplicated (not imported) from workspaces/[id]/page.tsx -- this
-// codebase has no cross-page shared-component convention, every page.tsx
-// keeps its own local constants/subcomponents.
-const ALL_DATABASE_PERMISSIONS: DatabasePermission[] = [
-  "database.view",
-  "database.performance",
-  "database.browser",
-  "database.logs",
-  "database.query_details",
-];
-const ALL_OBJECT_STORAGE_PERMISSIONS: ObjectStoragePermission[] = [
-  "object_storage.view",
-  "object_storage.monitor",
-  "object_storage.browser",
-  "object_storage.download",
-];
-// vm.metrics/vm.updates let a Member be granted just the Metrics-and-Logs
-// tree or just the Updates tree on a VM, without the broader vm.view
-// (which also covers the VM detail/Docker/console sections).
-const VM_PERMISSIONS = ["vm.view", "vm.connect", "vm.metrics", "vm.updates"] as const;
 
 // FOLDER/DASHBOARD scope rows link back to where that folder/dashboard
 // actually lives -- derivable purely from the grant's own permission
@@ -616,7 +594,7 @@ function MonitoringLogsTab({ kind, members }: { kind: "MONITORING" | "LOGS"; mem
               <TableRow>
                 <TableHead>Member</TableHead>
                 <TableHead>Scope</TableHead>
-                <TableHead>Permission</TableHead>
+                <TableHead>Access</TableHead>
                 <TableHead>Granted</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
@@ -690,11 +668,6 @@ function revokeByType(type: ResourceKind, resourceId: string, userId: string) {
   }
 }
 
-function defaultPermissionFor(type: ResourceKind): string {
-  if (type === "VM") return "vm.view";
-  if (type === "DATABASE") return "database.view";
-  return "object_storage.view";
-}
 
 function ResourcesAccessTab({ members }: { members: UserListItem[] }) {
   // The picker splits VMs by sidebar section (Compute Inventory vs Host
@@ -705,7 +678,9 @@ function ResourcesAccessTab({ members }: { members: UserListItem[] }) {
   const [databases, setDatabases] = useState<DatabaseListItem[]>([]);
   const [storages, setStorages] = useState<ObjectStorageListItem[]>([]);
   const [resourceId, setResourceId] = useState("");
-  const [permissions, setPermissions] = useState<Set<string>>(new Set(["vm.view"]));
+  // One plain-language access level (see lib/access-levels.ts) instead of
+  // raw permission checkboxes; its permission codes are what gets granted.
+  const [accessLevelId, setAccessLevelId] = useState(ACCESS_LEVELS.VM_INVENTORY[0].id);
   const [userId, setUserId] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -732,7 +707,7 @@ function ResourcesAccessTab({ members }: { members: UserListItem[] }) {
   function handleTypeChange(choice: ResourceChoice) {
     setTypeChoice(choice);
     setResourceId("");
-    setPermissions(new Set([defaultPermissionFor(choiceToType(choice) as ResourceKind)]));
+    setAccessLevelId(ACCESS_LEVELS[choice][0].id);
   }
 
   const resourceOptions =
@@ -744,17 +719,9 @@ function ResourcesAccessTab({ members }: { members: UserListItem[] }) {
         ? databases.map((d) => ({ id: d.id, label: `${d.name ?? d.host} — ${d.type} · ${d.workspace_name ?? "-"}` }))
         : storages.map((s) => ({ id: s.id, label: `${s.name} — ${s.bucket} · ${s.workspace_name ?? "-"}` }));
 
-  const permissionOptions: string[] =
-    resourceType === "VM" ? [...VM_PERMISSIONS] : resourceType === "DATABASE" ? ALL_DATABASE_PERMISSIONS : ALL_OBJECT_STORAGE_PERMISSIONS;
-
-  function togglePermission(p: string) {
-    setPermissions((prev) => {
-      const next = new Set(prev);
-      if (next.has(p)) next.delete(p);
-      else next.add(p);
-      return next;
-    });
-  }
+  const accessLevels = ACCESS_LEVELS[typeChoice];
+  const accessLevel = accessLevels.find((l) => l.id === accessLevelId) ?? accessLevels[0];
+  const permissions = new Set(accessLevel.permissions);
 
   async function handleGrant() {
     setFormError(null);
@@ -826,16 +793,21 @@ function ResourcesAccessTab({ members }: { members: UserListItem[] }) {
           </div>
         </div>
 
-        <div>
-          <Label>Permissions</Label>
-          <div className="mt-1 flex flex-wrap gap-3">
-            {permissionOptions.map((p) => (
-              <label key={p} className="flex items-center gap-2 text-sm text-slate-700">
-                <Checkbox checked={permissions.has(p)} onCheckedChange={() => togglePermission(p)} />
-                {p}
-              </label>
-            ))}
-          </div>
+        <div className="max-w-md">
+          <Label htmlFor="resources-access">Access level</Label>
+          <Select value={accessLevel.id} onValueChange={(v) => setAccessLevelId(v ?? accessLevels[0].id)}>
+            <SelectTrigger id="resources-access">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {accessLevels.map((l) => (
+                <SelectItem key={l.id} value={l.id}>
+                  {l.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p className="mt-1 text-xs text-slate-500">{accessLevel.description}</p>
         </div>
 
         <div className="max-w-sm">
@@ -867,7 +839,7 @@ function ResourcesAccessTab({ members }: { members: UserListItem[] }) {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Permission</TableHead>
+              <TableHead>Access</TableHead>
               <TableHead>Description</TableHead>
               <TableHead>Resource</TableHead>
               <TableHead>Scope</TableHead>
@@ -878,7 +850,7 @@ function ResourcesAccessTab({ members }: { members: UserListItem[] }) {
           <TableBody>
             {grants.map((g) => (
               <TableRow key={`${g.resource_id}-${g.user_id}-${g.permission}`}>
-                <TableCell className="font-mono text-xs">{g.permission}</TableCell>
+                <TableCell className="text-sm">{PERMISSION_TEXT[g.permission] ?? g.permission}</TableCell>
                 <TableCell className="text-slate-600">{g.description}</TableCell>
                 <TableCell>
                   <div className="font-medium text-slate-900">{g.resource_name}</div>
@@ -900,7 +872,7 @@ function ResourcesAccessTab({ members }: { members: UserListItem[] }) {
                       </Button>
                     }
                     title="Revoke permission"
-                    description={`This revokes ALL of ${g.user_name}'s direct permissions on ${g.resource_name} (not just ${g.permission}) -- the underlying API revokes a user's access to a resource as a whole, not one permission at a time.`}
+                    description={`This revokes ALL of ${g.user_name}'s direct permissions on ${g.resource_name} (not just ${PERMISSION_TEXT[g.permission] ?? g.permission}) -- the underlying API revokes a user's access to a resource as a whole, not one permission at a time.`}
                     confirmLabel="Revoke"
                     destructive
                     onConfirm={() => handleRevoke(g)}
