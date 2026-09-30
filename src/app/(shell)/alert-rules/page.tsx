@@ -59,6 +59,12 @@ import {
   type ObjectStorageListItem,
   type VM,
 } from "@/lib/api";
+import {
+  RESOURCE_TYPE_LABEL,
+  RESOURCE_TYPE_NOUN,
+  RESOURCE_TYPE_SECTION,
+  RESOURCE_TYPE_WHERE,
+} from "@/lib/resource-labels";
 
 const CONDITIONS: AlertCondition[] = [">", "<", ">=", "<=", "=="];
 const SEVERITIES: AlertSeverity[] = ["INFO", "WARNING", "CRITICAL"];
@@ -67,13 +73,7 @@ const SEVERITIES: AlertSeverity[] = ["INFO", "WARNING", "CRITICAL"];
 // the section order on the list page below and the Resource Type
 // dropdown's option order in the form.
 const RESOURCE_KIND_ORDER = ["VM", "DATABASE", "OBJECT_STORAGE", "DOCKER_HOST", "K8S_CLUSTER"] as const;
-const RESOURCE_KIND_LABELS: Record<string, string> = {
-  VM: "Virtual Machines",
-  DATABASE: "Databases",
-  OBJECT_STORAGE: "Object Storage",
-  DOCKER_HOST: "Docker",
-  K8S_CLUSTER: "Kubernetes",
-};
+const RESOURCE_KIND_LABELS: Record<string, string> = RESOURCE_TYPE_SECTION;
 
 // Union of a policy's info/warning/critical channel lists -- what "this
 // policy is configured for X/Y/Z" means at a glance, independent of
@@ -394,6 +394,14 @@ export function NewAlertRuleForm({
     }
   }, [resourceKind, resourceId]);
 
+  const resourceCounts: Record<AlertRuleResourceKind, number> = {
+    VM: vms.length,
+    DATABASE: databases.length,
+    OBJECT_STORAGE: objectStorages.length,
+    DOCKER_HOST: dockerHosts.length,
+    K8S_CLUSTER: k8sClusters.length,
+  };
+
   const targetsContainer = resourceKind === "VM" && containerId !== "" && containerId !== ALL;
   const targetsPod = resourceKind === "K8S_CLUSTER" && k8sPodId !== "" && k8sPodId !== ALL;
   const targetsHostContainer = resourceKind === "DOCKER_HOST" && dockerHostContainerId !== "" && dockerHostContainerId !== ALL;
@@ -502,27 +510,17 @@ export function NewAlertRuleForm({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="VM">VM</SelectItem>
-                  <SelectItem value="DATABASE">Database</SelectItem>
-                  <SelectItem value="OBJECT_STORAGE">Object Storage</SelectItem>
-                  <SelectItem value="DOCKER_HOST">Docker Host</SelectItem>
-                  <SelectItem value="K8S_CLUSTER">Kubernetes Cluster</SelectItem>
+                  {RESOURCE_KIND_ORDER.map((k) => (
+                    <SelectItem key={k} value={k}>
+                      {RESOURCE_TYPE_LABEL[k]} ({resourceCounts[k]})
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
 
             <div className="flex flex-col gap-1.5">
-              <Label>
-                {resourceKind === "VM"
-                  ? "VM"
-                  : resourceKind === "DATABASE"
-                    ? "Database"
-                    : resourceKind === "OBJECT_STORAGE"
-                      ? "Object Storage"
-                      : resourceKind === "DOCKER_HOST"
-                        ? "Docker Host"
-                        : "Kubernetes Cluster"}
-              </Label>
+              <Label>{RESOURCE_TYPE_NOUN[resourceKind]}</Label>
               <Select
                 value={resourceId}
                 onValueChange={(v) => {
@@ -535,41 +533,46 @@ export function NewAlertRuleForm({
                 disabled={submitting}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder="Select a resource" />
+                  <SelectValue
+                    placeholder={resourceCounts[resourceKind] === 0 ? `No ${RESOURCE_TYPE_NOUN[resourceKind]} registered yet` : `Select a ${RESOURCE_TYPE_NOUN[resourceKind]}`}
+                  />
                 </SelectTrigger>
                 <SelectContent>
                   {resourceKind === "VM" &&
                     vms.map((vm) => (
                       <SelectItem key={vm.id} value={vm.id}>
-                        {vm.name} ({vm.workspace})
+                        {vm.name} — {vm.address || "agent-only"} · {vm.workspace}
                       </SelectItem>
                     ))}
                   {resourceKind === "DATABASE" &&
                     databases.map((db) => (
                       <SelectItem key={db.resource_id} value={db.resource_id}>
-                        {db.name || db.database_name || db.host} ({db.workspace_name ?? "—"})
+                        {db.name || db.database_name || db.host} — {db.type} · {db.workspace_name ?? "—"}
                       </SelectItem>
                     ))}
                   {resourceKind === "OBJECT_STORAGE" &&
                     objectStorages.map((os) => (
                       <SelectItem key={os.resource_id} value={os.resource_id}>
-                        {os.name} ({os.workspace_name ?? "—"})
+                        {os.name} — {os.bucket} · {os.workspace_name ?? "—"}
                       </SelectItem>
                     ))}
                   {resourceKind === "DOCKER_HOST" &&
                     dockerHosts.map((h) => (
                       <SelectItem key={h.resource_id} value={h.resource_id}>
-                        {h.name} ({h.workspace_name})
+                        {h.name} — {h.agent_connected ? "connected" : "not connected"} · {h.workspace_name}
                       </SelectItem>
                     ))}
                   {resourceKind === "K8S_CLUSTER" &&
                     k8sClusters.map((c) => (
                       <SelectItem key={c.resource_id} value={c.resource_id}>
-                        {c.name} ({c.workspace_name})
+                        {c.name} — {c.agent_connected ? "connected" : "not connected"} · {c.workspace_name}
                       </SelectItem>
                     ))}
                 </SelectContent>
               </Select>
+              {resourceCounts[resourceKind] === 0 && (
+                <p className="text-xs text-slate-500">Register one under {RESOURCE_TYPE_WHERE[resourceKind]}.</p>
+              )}
             </div>
           </>
         )}

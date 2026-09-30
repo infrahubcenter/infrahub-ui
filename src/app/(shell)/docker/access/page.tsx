@@ -60,12 +60,13 @@ import {
   type Workspace,
   type WorkspaceMember,
 } from "@/lib/api";
+import { RESOURCE_TYPE_LABEL, RESOURCE_TYPE_NOUN } from "@/lib/resource-labels";
 
 const PERMISSION_LABELS: Record<DockerAccessPermission, string> = {
   "docker.monitor": "Docker Monitoring (view metrics)",
-  "docker.logs": "Docker Logs (view/tail)",
+  "docker.logs": "Docker Log Explorer (view/tail)",
   "k8s.monitor": "Kubernetes Monitoring (view pods)",
-  "k8s.logs": "Kubernetes Logs (view/tail)",
+  "k8s.logs": "Kubernetes Log Explorer (view/tail)",
 };
 
 // Duplicated (not imported) from workspaces/[id]/page.tsx -- this
@@ -127,18 +128,19 @@ function DockerAccessContent() {
           <KeySquare className="h-5 w-5" /> Access Control (RBAC)
         </h2>
         <p className="text-sm text-slate-500">
-          Grant a Member access, organized by section: Workspace membership (every resource in a workspace),
-          Monitoring, Logs, or direct access to one VM, Database, or Object Storage. Admins and Owners always have
-          full access and never need a grant.
+          Grant a Member access, organized like the sidebar: Workspaces (every resource in a workspace),
+          Infrastructure Monitoring, Log Management, or direct access to one Virtual Machine (Compute), Database
+          (Database Observability) or Bucket (Object Storage (S3)). Admins and Owners always have full access and
+          never need a grant.
         </p>
       </div>
 
       <Tabs defaultValue="workspace">
         <TabsList>
-          <TabsTrigger value="workspace">Workspace</TabsTrigger>
-          <TabsTrigger value="monitoring">Monitoring</TabsTrigger>
-          <TabsTrigger value="logs">Logs</TabsTrigger>
-          <TabsTrigger value="resources">Resources</TabsTrigger>
+          <TabsTrigger value="workspace">Workspaces</TabsTrigger>
+          <TabsTrigger value="monitoring">Infrastructure Monitoring</TabsTrigger>
+          <TabsTrigger value="logs">Log Management</TabsTrigger>
+          <TabsTrigger value="resources">Compute, Databases &amp; S3</TabsTrigger>
         </TabsList>
         <TabsContent value="workspace">
           <WorkspaceAccessTab members={members} />
@@ -404,7 +406,7 @@ function MonitoringLogsTab({ kind, members }: { kind: "MONITORING" | "LOGS"; mem
       return;
     }
     if (scope === "resource" && !resourceId) {
-      setFormError(`Select a ${engine === "DOCKER" ? "VM or Docker Host" : "cluster"}.`);
+      setFormError(`Select a ${engine === "DOCKER" ? "Virtual Machine or Docker Host" : "Kubernetes Cluster"}.`);
       return;
     }
     if (scope === "folder" && !folderId) {
@@ -461,7 +463,7 @@ function MonitoringLogsTab({ kind, members }: { kind: "MONITORING" | "LOGS"; mem
     <div className="mt-4 flex flex-col gap-4">
       <div className="flex flex-col gap-4 rounded-lg border border-slate-200 bg-white p-4">
         <div>
-          <Label>Engine</Label>
+          <Label>{kind === "MONITORING" ? "Monitoring" : "Log Explorer"}</Label>
           <Tabs
             value={engine}
             onValueChange={(v) => {
@@ -470,8 +472,8 @@ function MonitoringLogsTab({ kind, members }: { kind: "MONITORING" | "LOGS"; mem
             }}
           >
             <TabsList>
-              <TabsTrigger value="DOCKER">Docker</TabsTrigger>
-              <TabsTrigger value="K8S">Kubernetes</TabsTrigger>
+              <TabsTrigger value="DOCKER">{kind === "MONITORING" ? "Docker Monitoring" : "Docker Log Explorer"}</TabsTrigger>
+              <TabsTrigger value="K8S">{kind === "MONITORING" ? "Kubernetes Monitoring" : "Kubernetes Log Explorer"}</TabsTrigger>
             </TabsList>
           </Tabs>
         </div>
@@ -491,7 +493,7 @@ function MonitoringLogsTab({ kind, members }: { kind: "MONITORING" | "LOGS"; mem
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="workspace">Whole Workspace</SelectItem>
-                <SelectItem value="resource">Specific {engine === "DOCKER" ? "VM or Docker Host" : "Cluster"}</SelectItem>
+                <SelectItem value="resource">Specific {engine === "DOCKER" ? "Virtual Machine or Docker Host" : "Kubernetes Cluster"}</SelectItem>
                 <SelectItem value="folder">Specific Folder</SelectItem>
                 <SelectItem value="dashboard">Specific Dashboard</SelectItem>
               </SelectContent>
@@ -521,7 +523,7 @@ function MonitoringLogsTab({ kind, members }: { kind: "MONITORING" | "LOGS"; mem
 
           {scope === "resource" && (
             <div>
-              <Label htmlFor={`${kind}-resource`}>{engine === "DOCKER" ? "VM or Docker Host" : "Cluster"}</Label>
+              <Label htmlFor={`${kind}-resource`}>{engine === "DOCKER" ? "Virtual Machine or Docker Host" : "Kubernetes Cluster"}</Label>
               <Select value={resourceId} onValueChange={(v) => setResourceId(v ?? "")} disabled={!workspaceId}>
                 <SelectTrigger id={`${kind}-resource`}>
                   <SelectValue placeholder={workspaceId ? "Select a resource" : "Pick a workspace first"} />
@@ -720,10 +722,10 @@ function ResourcesAccessTab({ members }: { members: UserListItem[] }) {
 
   const resourceOptions =
     resourceType === "VM"
-      ? vms.map((v) => ({ id: v.id, label: `${v.name} (${v.workspace})` }))
+      ? vms.map((v) => ({ id: v.id, label: `${v.name} — ${v.address || "agent-only"} · ${v.workspace}` }))
       : resourceType === "DATABASE"
-        ? databases.map((d) => ({ id: d.id, label: `${d.name ?? d.host} (${d.workspace_name ?? "-"})` }))
-        : storages.map((s) => ({ id: s.id, label: `${s.name} (${s.workspace_name ?? "-"})` }));
+        ? databases.map((d) => ({ id: d.id, label: `${d.name ?? d.host} — ${d.type} · ${d.workspace_name ?? "-"}` }))
+        : storages.map((s) => ({ id: s.id, label: `${s.name} — ${s.bucket} · ${s.workspace_name ?? "-"}` }));
 
   const permissionOptions: string[] =
     resourceType === "VM" ? [...VM_PERMISSIONS] : resourceType === "DATABASE" ? ALL_DATABASE_PERMISSIONS : ALL_OBJECT_STORAGE_PERMISSIONS;
@@ -782,14 +784,14 @@ function ResourcesAccessTab({ members }: { members: UserListItem[] }) {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="VM">VM</SelectItem>
-                <SelectItem value="DATABASE">Database</SelectItem>
-                <SelectItem value="OBJECT_STORAGE">Object Storage</SelectItem>
+                <SelectItem value="VM">{RESOURCE_TYPE_LABEL.VM}</SelectItem>
+                <SelectItem value="DATABASE">{RESOURCE_TYPE_LABEL.DATABASE}</SelectItem>
+                <SelectItem value="OBJECT_STORAGE">{RESOURCE_TYPE_LABEL.OBJECT_STORAGE}</SelectItem>
               </SelectContent>
             </Select>
           </div>
           <div>
-            <Label htmlFor="resources-resource">Resource</Label>
+            <Label htmlFor="resources-resource">{RESOURCE_TYPE_NOUN[resourceType]}</Label>
             <Select value={resourceId} onValueChange={(v) => setResourceId(v ?? "")}>
               <SelectTrigger id="resources-resource">
                 <SelectValue placeholder="Select a resource" />
