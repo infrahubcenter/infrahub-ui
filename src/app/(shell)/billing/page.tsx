@@ -7,6 +7,7 @@ import { UsageBar } from "@/components/infrastructure/usage-bar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
+  getLicense,
   listDatabases,
   listDockerHosts,
   listK8sClusters,
@@ -16,13 +17,16 @@ import {
 } from "@/lib/api";
 import { APP_RELEASE_CHANNEL, APP_VERSION, MARKETING_URL } from "@/lib/branding";
 import {
-  CURRENT_PLAN,
+  CURRENT_PLAN as FALLBACK_PLAN,
   PLAN_LIMIT_LABELS,
   PLANS,
   formatLimit,
   formatPrice,
+  LICENSE_LIMIT_KEYS,
+  planById,
   type PlanLimitKey,
 } from "@/lib/plans";
+import type { LicenseInfo } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 type Usage = Partial<Record<PlanLimitKey, number>>;
@@ -40,33 +44,50 @@ export default function BillingPage() {
 
 function BillingContent() {
   const [usage, setUsage] = useState<Usage>({});
+  const [license, setLicense] = useState<LicenseInfo["license"] | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
-    // Each count is independent -- one failing endpoint (e.g. K8s not
-    // configured) must not blank out the rest of the meters.
-    const keys: PlanLimitKey[] = ["vms", "databases", "objectStorage", "dockerHosts", "k8sClusters", "users"];
-    Promise.allSettled([
-      listVMs().then((r) => r.vms.length),
-      listDatabases().then((r) => r.total ?? r.databases.length),
-      listObjectStorage().then((r) => r.total ?? r.storages.length),
-      listDockerHosts().then((r) => r.hosts.length),
-      listK8sClusters().then((r) => r.clusters.length),
-      listUsers({ limit: 1 }).then((r) => r.total),
-    ]).then((results) => {
-      if (cancelled) return;
-      const next: Usage = {};
-      results.forEach((res, i) => {
-        if (res.status === "fulfilled") next[keys[i]] = res.value;
+    getLicense()
+      .then((info) => {
+        if (cancelled) return;
+        const next: Usage = {};
+        for (const [k, v] of Object.entries(info.usage)) {
+          const key = LICENSE_LIMIT_KEYS[k];
+          if (key) next[key] = v;
+        }
+        setLicense(info.license);
+        setUsage(next);
+        setLoading(false);
+      })
+      .catch(() => {
+        // An older API without /api/license: count each resource list.
+        const keys: PlanLimitKey[] = ["vms", "databases", "objectStorage", "dockerHosts", "k8sClusters", "users"];
+        Promise.allSettled([
+          listVMs().then((r) => r.vms.length),
+          listDatabases().then((r) => r.total ?? r.databases.length),
+          listObjectStorage().then((r) => r.total ?? r.storages.length),
+          listDockerHosts().then((r) => r.hosts.length),
+          listK8sClusters().then((r) => r.clusters.length),
+          listUsers({ limit: 1 }).then((r) => r.total),
+        ]).then((results) => {
+          if (cancelled) return;
+          const next: Usage = {};
+          results.forEach((res, i) => {
+            if (res.status === "fulfilled") next[keys[i]] = res.value;
+          });
+          setUsage(next);
+          setLoading(false);
+        });
       });
-      setUsage(next);
-      setLoading(false);
-    });
     return () => {
       cancelled = true;
     };
   }, []);
+
+  const CURRENT_PLAN = license ? planById(license.plan.id) : FALLBACK_PLAN;
+  const licenseProblem = license && (license.status === "expired" || license.status === "invalid") ? license : null;
 
   const overLimit = LIMIT_KEYS.filter((k) => {
     const limit = CURRENT_PLAN.limits[k];
@@ -91,6 +112,16 @@ function BillingContent() {
         </a>
       </div>
 
+      {licenseProblem && (
+        <div className="flex items-start gap-3 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <div>
+            <div className="font-medium">License {licenseProblem.status === "expired" ? "expired" : "not valid"} &mdash; running the Community plan</div>
+            <div>{licenseProblem.error}. Renew or check INFRAHUB_LICENSE_KEY on the API.</div>
+          </div>
+        </div>
+      )}
+
       {overLimit.length > 0 && (
         <div className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
@@ -98,7 +129,7 @@ function BillingContent() {
             <div className="font-medium">You&rsquo;re over your {CURRENT_PLAN.name} plan limits</div>
             <div>
               {overLimit.map((k) => PLAN_LIMIT_LABELS[k]).join(", ")} exceed{overLimit.length === 1 ? "s" : ""} the included
-              quota. Upgrade to keep adding resources.
+              quota. Existing resources keep working; upgrade to add more.
             </div>
           </div>
         </div>
@@ -109,7 +140,7 @@ function BillingContent() {
           <div className="text-xs font-medium uppercase tracking-wide text-slate-500">Current plan</div>
           <div className="mt-2 flex items-baseline gap-2">
             <span className="text-2xl font-semibold text-slate-900 dark:text-slate-100">{CURRENT_PLAN.name}</span>
-            <Badge variant="secondary">Active</Badge>
+            <Badge variant="secondary">{license?.status === "active" ? "Licensed" : "Active"}</Badge>
           </div>
           <div className="mt-1 text-sm text-slate-500">{CURRENT_PLAN.tagline}</div>
           <div className="mt-4 text-3xl font-semibold text-slate-900 dark:text-slate-100">
@@ -119,6 +150,8 @@ function BillingContent() {
           <dl className="mt-4 space-y-1.5 text-sm">
             <Row label="Metrics retention" value={retention(CURRENT_PLAN.metricsRetentionDays)} />
             <Row label="Log retention" value={retention(CURRENT_PLAN.logRetentionDays)} />
+            {license?.licensee && <Row label="Licensed to" value={license.licensee} />}
+            {license?.expires_at && <Row label="License valid until" value={new Date(license.expires_at).toLocaleDateString()} />}
             <Row label="Platform version" value={`v${APP_VERSION} (${APP_RELEASE_CHANNEL})`} />
           </dl>
         </div>

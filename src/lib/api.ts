@@ -4721,6 +4721,25 @@ export function getPlatformSettings() {
   return apiFetch<PlatformSettings>("/api/settings/platform");
 }
 
+// === Plan & license (any signed-in user) ===
+// The plan this installation runs and what counts against its limits. -1
+// means unlimited. status: "community" (no license key), "active",
+// "expired" or "invalid" -- the last two run the Community plan.
+export type LicenseInfo = {
+  license: {
+    plan: { id: string; name: string; limits: Record<string, number>; metrics_retention_days: number; log_retention_days: number };
+    licensee?: string;
+    expires_at?: string;
+    status: "community" | "active" | "expired" | "invalid";
+    error?: string;
+  };
+  usage: Record<string, number>;
+};
+
+export function getLicense() {
+  return apiFetch<LicenseInfo>("/api/license");
+}
+
 // === Sign-in Methods (Owner-only edit surface) ===
 // GitHub/Google client secrets and the SMTP password are never echoed back
 // -- only a `*_set` boolean, matching this app's masked-credential-display

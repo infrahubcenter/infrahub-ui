@@ -2,10 +2,12 @@
 // published on the marketing site (infrahub-site/src/lib/product.ts) --
 // keep the two in sync when prices or limits change.
 //
-// The active plan comes from INFRAHUB_PLAN, read at runtime per
-// deployment (see lib/runtime-config.ts). Limits here are enforced in the UI only (usage meters and
-// over-limit warnings on Plans & Billing); the backend does not yet
-// reject creates past a limit.
+// The active plan comes from the API (GET /api/license): Community unless
+// the API holds a valid signed INFRAHUB_LICENSE_KEY. The API enforces the
+// limits itself -- creating one more VM/database/bucket/Docker host/cluster/
+// user past the plan's limit is refused -- and caps metrics/log retention.
+// INFRAHUB_PLAN (lib/runtime-config.ts) is only a fallback for an older API
+// without /api/license.
 
 import { runtimeConfig } from "./runtime-config";
 
@@ -16,7 +18,7 @@ export type PlanLimitKey = "vms" | "databases" | "objectStorage" | "dockerHosts"
 export type Plan = {
   id: PlanId;
   name: string;
-  /** Monthly price in USD, or null for "Contact sales". */
+  /** Monthly price in Indian rupees (INR), or null for "Contact sales". */
   priceMonthly: number | null;
   /** Price per month when billed annually. */
   priceAnnual: number | null;
@@ -44,16 +46,16 @@ export const PLANS: Plan[] = [
     priceMonthly: 0,
     priceAnnual: 0,
     tagline: "For individuals and small labs getting started.",
-    limits: { vms: 5, databases: 2, objectStorage: 1, dockerHosts: 2, k8sClusters: 1, users: 3 },
+    limits: { vms: 2, databases: 1, objectStorage: 1, dockerHosts: 1, k8sClusters: 1, users: 1 },
     logRetentionDays: 3,
-    metricsRetentionDays: 7,
+    metricsRetentionDays: 3,
     features: ["VM inventory & web SSH console", "Docker & Kubernetes monitoring", "Live log tailing", "Threshold alerts", "Community support"],
   },
   {
     id: "team",
     name: "Team",
-    priceMonthly: 49,
-    priceAnnual: 39,
+    priceMonthly: 3999,
+    priceAnnual: 3199,
     tagline: "For growing DevOps teams running production workloads.",
     limits: { vms: 25, databases: 10, objectStorage: 5, dockerHosts: 10, k8sClusters: 3, users: 15 },
     logRetentionDays: 14,
@@ -63,8 +65,8 @@ export const PLANS: Plan[] = [
   {
     id: "business",
     name: "Business",
-    priceMonthly: 199,
-    priceAnnual: 159,
+    priceMonthly: 15999,
+    priceAnnual: 12799,
     tagline: "For organizations standardizing on one ops platform.",
     limits: { vms: 100, databases: 50, objectStorage: 25, dockerHosts: 50, k8sClusters: 15, users: null },
     logRetentionDays: 30,
@@ -96,5 +98,15 @@ export function formatLimit(limit: number | null): string {
 
 export function formatPrice(price: number | null): string {
   if (price === null) return "Custom";
-  return price === 0 ? "Free" : `$${price}`;
+  return price === 0 ? "Free" : `₹${price.toLocaleString("en-IN")}`;
 }
+
+// GET /api/license's limit keys -> this file's.
+export const LICENSE_LIMIT_KEYS: Record<string, PlanLimitKey> = {
+  vms: "vms",
+  databases: "databases",
+  object_storage: "objectStorage",
+  docker_hosts: "dockerHosts",
+  k8s_clusters: "k8sClusters",
+  users: "users",
+};
