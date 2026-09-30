@@ -14,9 +14,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   Select,
   SelectContent,
-  SelectGroup,
   SelectItem,
-  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -68,6 +66,7 @@ import {
   vmChoiceFor,
   type ResourceTypeChoice,
 } from "@/lib/resource-labels";
+import { thresholdExplanation, thresholdKind, thresholdPresets, thresholdUnit } from "@/lib/alert-thresholds";
 
 // Resource Type dropdown order -- the sidebar's own order.
 const RESOURCE_CHOICE_ORDER: ResourceTypeChoice[] = [
@@ -364,6 +363,8 @@ export function AlertRulesContent() {
 }
 
 const ALL = "__all__";
+
+type TypeSettings = { condition: AlertCondition; threshold: string; duration: string };
 export type AlertRuleResourceKind = "VM" | "DATABASE" | "OBJECT_STORAGE" | "K8S_CLUSTER" | "DOCKER_HOST";
 
 // lockedResourceId/lockedResourceKind let a caller reuse this exact form
@@ -401,11 +402,9 @@ export function NewAlertRuleForm({
   const [containerId, setContainerId] = useState("");
   const [k8sPodId, setK8sPodId] = useState("");
   const [dockerHostContainerId, setDockerHostContainerId] = useState("");
-  const [templateType, setTemplateType] = useState("");
+  // Ticked alert types, each with its own condition/threshold/duration.
+  const [selectedTypes, setSelectedTypes] = useState<Record<string, TypeSettings>>({});
 
-  const [condition, setCondition] = useState<AlertCondition>(">");
-  const [threshold, setThreshold] = useState("");
-  const [durationSeconds, setDurationSeconds] = useState("300");
   const [severity, setSeverity] = useState<AlertSeverity>("WARNING");
   const [notificationPolicyId, setNotificationPolicyId] = useState("");
   const [enabled, setEnabled] = useState(true);
@@ -479,8 +478,6 @@ export function NewAlertRuleForm({
   const availableTemplates = templates.filter((t) => t.applies_to_resource === applicableResourceType);
   const metricTemplates = availableTemplates.filter((t) => !isLogBasedAlertTemplate(t));
   const logTemplates = availableTemplates.filter(isLogBasedAlertTemplate);
-  const selectedTemplate = availableTemplates.find((t) => t.type === templateType);
-
   function handleTypeChoiceChange(choice: ResourceTypeChoice) {
     setTypeChoice(choice);
     handleResourceKindChange(choiceToType(choice));
@@ -492,23 +489,34 @@ export function NewAlertRuleForm({
     setContainerId("");
     setK8sPodId("");
     setDockerHostContainerId("");
-    setTemplateType("");
+    setSelectedTypes({});
   }
 
   function handleSubTargetChange(setter: (v: string) => void, value: string) {
     setter(value);
-    setTemplateType("");
+    setSelectedTypes({});
   }
 
-  function handleTemplateChange(type: string) {
-    setTemplateType(type);
-    const t = availableTemplates.find((tpl) => tpl.type === type);
-    if (t) {
-      setCondition(t.default_condition);
-      setThreshold(String(t.default_threshold));
-      setDurationSeconds(String(t.default_duration_seconds));
-      setSeverity(t.default_severity);
-    }
+  // Tick/untick one alert type; ticking starts from the template's own
+  // defaults (condition, threshold, duration).
+  function toggleType(t: AlertTemplate, on: boolean) {
+    setSelectedTypes((prev) => {
+      const next = { ...prev };
+      if (on) {
+        next[t.type] = {
+          condition: t.default_condition,
+          threshold: String(t.default_threshold),
+          duration: String(t.default_duration_seconds),
+        };
+      } else {
+        delete next[t.type];
+      }
+      return next;
+    });
+  }
+
+  function updateType(type: string, patch: Partial<TypeSettings>) {
+    setSelectedTypes((prev) => (prev[type] ? { ...prev, [type]: { ...prev[type], ...patch } } : prev));
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -518,50 +526,129 @@ export function NewAlertRuleForm({
       setError("Choose a resource.");
       return;
     }
-    if (!templateType) {
-      setError("Choose an alert type.");
+    const chosen = availableTemplates.filter((t) => selectedTypes[t.type]);
+    if (chosen.length === 0) {
+      setError("Tick at least one alert type.");
       return;
     }
-    const thresholdNum = Number(threshold);
-    const durationNum = Number(durationSeconds);
-    if (Number.isNaN(thresholdNum)) {
-      setError("Threshold must be a number.");
-      return;
-    }
-    if (!Number.isFinite(durationNum) || durationNum < 0) {
-      setError("Duration must be a non-negative number of seconds.");
-      return;
+    for (const t of chosen) {
+      const cfg = selectedTypes[t.type];
+      if (cfg.threshold.trim() === "" || Number.isNaN(Number(cfg.threshold))) {
+        setError(`${t.label}: threshold must be a number.`);
+        return;
+      }
+      const d = Number(cfg.duration);
+      if (!Number.isFinite(d) || d < 0) {
+        setError(`${t.label}: duration must be a non-negative number of seconds.`);
+        return;
+      }
     }
 
     setSubmitting(true);
-    try {
-      await createAlertRule({
-        resource_id: resourceId,
-        container_id: targetsContainer ? containerId : undefined,
-        k8s_pod_id: targetsPod ? k8sPodId : undefined,
-        docker_host_container_id: targetsHostContainer ? dockerHostContainerId : undefined,
-        alert_type: templateType,
-        condition,
-        threshold: thresholdNum,
-        duration_seconds: durationNum,
-        severity,
-        notification_policy_id: notificationPolicyId || undefined,
-        enabled,
-      });
+    const failed: string[] = [];
+    for (const t of chosen) {
+      const cfg = selectedTypes[t.type];
+      try {
+        await createAlertRule({
+          resource_id: resourceId,
+          container_id: targetsContainer ? containerId : undefined,
+          k8s_pod_id: targetsPod ? k8sPodId : undefined,
+          docker_host_container_id: targetsHostContainer ? dockerHostContainerId : undefined,
+          alert_type: t.type,
+          condition: cfg.condition,
+          threshold: Number(cfg.threshold),
+          duration_seconds: Number(cfg.duration),
+          severity,
+          notification_policy_id: notificationPolicyId || undefined,
+          enabled,
+        });
+      } catch (err) {
+        failed.push(`${t.label}: ${err instanceof ApiError ? err.message : "failed"}`);
+      }
+    }
+    setSubmitting(false);
+    if (failed.length === 0) {
       onCreated();
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Failed to create alert rule.");
-    } finally {
-      setSubmitting(false);
+    } else if (failed.length < chosen.length) {
+      setError(`Created ${chosen.length - failed.length} of ${chosen.length} rules. Not created -- ${failed.join("; ")}`);
+    } else {
+      setError(`No rules created -- ${failed.join("; ")}`);
     }
   }
 
-  function renderTemplateOptions(list: AlertTemplate[]) {
-    return list.map((t) => (
-      <SelectItem key={t.type} value={t.type}>
-        {t.label}
-      </SelectItem>
-    ));
+  function renderTypeRow(t: AlertTemplate) {
+    const cfg = selectedTypes[t.type];
+    const kind = thresholdKind(t);
+    const unit = thresholdUnit(t);
+    return (
+      <div key={t.type} className={cfg ? "rounded-md border border-sky-200 bg-sky-50/40 p-3" : "rounded-md border border-slate-200 p-3"}>
+        <label className="flex cursor-pointer items-center gap-2 text-sm font-medium text-slate-800">
+          <Checkbox checked={!!cfg} onCheckedChange={(v) => toggleType(t, v === true)} disabled={submitting || !resourceId} />
+          {t.label}
+        </label>
+        {cfg && (
+          <div className="mt-3 grid grid-cols-1 gap-3 pl-6 sm:grid-cols-[120px_minmax(0,1fr)_140px]">
+            <div className="flex flex-col gap-1">
+              <Label className="text-xs">Condition</Label>
+              {kind === "flag" ? (
+                <p className="pt-1.5 text-sm text-slate-600">When it happens</p>
+              ) : (
+                <Select value={cfg.condition} onValueChange={(v) => updateType(t.type, { condition: (v as AlertCondition) ?? cfg.condition })} disabled={submitting}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {CONDITIONS.map((c) => (
+                      <SelectItem key={c} value={c}>
+                        {c}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
+            <div className="flex flex-col gap-1">
+              <Label className="text-xs">Threshold{unit ? ` (${unit})` : ""}</Label>
+              {kind === "flag" ? (
+                <p className="pt-1.5 text-sm text-slate-600">Not needed -- yes/no event</p>
+              ) : (
+                <div className="flex flex-wrap items-center gap-2">
+                  <Input
+                    type="number"
+                    step="any"
+                    className="w-28"
+                    value={cfg.threshold}
+                    onChange={(e) => updateType(t.type, { threshold: e.target.value })}
+                    disabled={submitting}
+                  />
+                  {thresholdPresets(t).map((n) => (
+                    <button
+                      key={n}
+                      type="button"
+                      onClick={() => updateType(t.type, { threshold: String(n) })}
+                      disabled={submitting}
+                      className={
+                        Number(cfg.threshold) === n
+                          ? "rounded-full bg-sky-600 px-2.5 py-1 text-xs font-medium text-white"
+                          : "rounded-full border border-slate-300 px-2.5 py-1 text-xs text-slate-600 hover:border-sky-400 hover:text-sky-700"
+                      }
+                    >
+                      {n}
+                      {unit === "%" ? "%" : ""}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="flex flex-col gap-1">
+              <Label className="text-xs">Duration (seconds)</Label>
+              <Input type="number" min={0} value={cfg.duration} onChange={(e) => updateType(t.type, { duration: e.target.value })} disabled={submitting} />
+            </div>
+            <p className="text-xs text-sky-800 sm:col-span-3">{thresholdExplanation(t, cfg.condition, cfg.threshold, cfg.duration)}</p>
+          </div>
+        )}
+      </div>
+    );
   }
 
   return (
@@ -596,7 +683,7 @@ export function NewAlertRuleForm({
                   setContainerId("");
                   setK8sPodId("");
                   setDockerHostContainerId("");
-                  setTemplateType("");
+                  setSelectedTypes({});
                 }}
                 disabled={submitting}
               >
@@ -707,61 +794,39 @@ export function NewAlertRuleForm({
           </div>
         )}
 
-        <div className="flex flex-col gap-1.5 sm:col-span-2">
-          <Label>Alert Type</Label>
-          <Select value={templateType} onValueChange={(v) => handleTemplateChange(v ?? "")} disabled={submitting || !resourceId}>
-            <SelectTrigger>
-              <SelectValue placeholder="Select an alert type" />
-            </SelectTrigger>
-            <SelectContent>
+        <div className="flex flex-col gap-2 sm:col-span-2">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <Label>Alert Types</Label>
+            {Object.keys(selectedTypes).length > 0 && (
+              <span className="text-xs text-slate-500">{Object.keys(selectedTypes).length} selected -- one rule is created per type</span>
+            )}
+          </div>
+          {!resourceId ? (
+            <p className="text-sm text-slate-500">Choose a resource above to see the alert types available for it.</p>
+          ) : availableTemplates.length === 0 ? (
+            <p className="text-sm text-slate-500">No alert types are available for this target.</p>
+          ) : (
+            <>
+              <div className="rounded-md bg-slate-50 p-3 text-xs leading-5 text-slate-600">
+                <span className="font-semibold text-slate-800">What is the threshold?</span> The value each check compares the
+                metric against -- e.g. Memory &gt; 90 means &ldquo;alert when more than 90% of memory is in use&rdquo;. The alert is
+                raised only if the metric stays past the threshold for the whole <em>Duration</em>, so a short spike never pages
+                you. Lower thresholds warn you earlier (more alerts); higher ones only flag serious problems.
+              </div>
               {metricTemplates.length > 0 && (
-                <SelectGroup>
-                  <SelectLabel>Metrics</SelectLabel>
-                  {renderTemplateOptions(metricTemplates)}
-                </SelectGroup>
+                <div className="flex flex-col gap-2">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Metrics</p>
+                  {metricTemplates.map(renderTypeRow)}
+                </div>
               )}
               {logTemplates.length > 0 && (
-                <SelectGroup>
-                  <SelectLabel>Log Management</SelectLabel>
-                  {renderTemplateOptions(logTemplates)}
-                </SelectGroup>
+                <div className="flex flex-col gap-2">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Log Management</p>
+                  {logTemplates.map(renderTypeRow)}
+                </div>
               )}
-            </SelectContent>
-          </Select>
-          {selectedTemplate && <p className="text-xs text-slate-500">Metric: {selectedTemplate.metric}</p>}
-        </div>
-
-        <div className="flex flex-col gap-1.5">
-          <Label>Condition</Label>
-          <Select value={condition} onValueChange={(v) => setCondition((v as AlertCondition) ?? ">")} disabled={submitting}>
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {CONDITIONS.map((c) => (
-                <SelectItem key={c} value={c}>
-                  {c}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        <div className="flex flex-col gap-1.5">
-          <Label>Threshold</Label>
-          <Input type="number" step="any" value={threshold} onChange={(e) => setThreshold(e.target.value)} disabled={submitting} />
-        </div>
-
-        <div className="flex flex-col gap-1.5">
-          <Label>Duration (seconds)</Label>
-          <Input
-            type="number"
-            min={0}
-            value={durationSeconds}
-            onChange={(e) => setDurationSeconds(e.target.value)}
-            disabled={submitting}
-          />
-          <p className="text-xs text-slate-500">How long the breach must hold before an alert is raised.</p>
+            </>
+          )}
         </div>
 
         <div className="flex flex-col gap-1.5">
@@ -822,7 +887,11 @@ export function NewAlertRuleForm({
           Cancel
         </Button>
         <Button type="submit" size="sm" disabled={submitting}>
-          {submitting ? "Saving…" : "Save Rule"}
+          {submitting
+            ? "Saving…"
+            : Object.keys(selectedTypes).length > 1
+              ? `Save ${Object.keys(selectedTypes).length} Rules`
+              : "Save Rule"}
         </Button>
       </div>
     </form>
