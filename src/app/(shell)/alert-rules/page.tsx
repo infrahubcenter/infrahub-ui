@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Plus, SlidersHorizontal, Trash2 } from "lucide-react";
+import { Pencil, Plus, SlidersHorizontal, Trash2 } from "lucide-react";
 import { RouteGuard } from "@/components/auth/route-guard";
 import { ConfirmDialog } from "@/components/infrastructure/confirm-dialog";
 import { SeverityBadge } from "@/components/infrastructure/severity-badge";
@@ -116,6 +116,7 @@ export function AlertRulesContent() {
   const [rules, setRules] = useState<AlertRuleListItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
+  const [editing, setEditing] = useState<AlertRuleListItem | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
 
   const load = useCallback(() => {
@@ -239,6 +240,20 @@ export function AlertRulesContent() {
           )}
         </TableCell>
         <TableCell>
+          <div className="flex items-center justify-end gap-1">
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Edit rule"
+            title="Edit rule"
+            disabled={busyId === item.rule.id}
+            onClick={() => {
+              setShowForm(false);
+              setEditing(item);
+            }}
+          >
+            <Pencil className="h-4 w-4" />
+          </Button>
           <ConfirmDialog
             trigger={
               <Button variant="ghost" size="icon-sm" aria-label="Delete rule" disabled={busyId === item.rule.id}>
@@ -250,6 +265,7 @@ export function AlertRulesContent() {
             confirmLabel="Delete"
             onConfirm={() => handleDelete(item.rule.id)}
           />
+          </div>
         </TableCell>
       </TableRow>
     );
@@ -269,7 +285,13 @@ export function AlertRulesContent() {
             an alert. Rules never execute anything -- they only observe and notify.
           </p>
         </div>
-        <Button size="sm" onClick={() => setShowForm((v) => !v)}>
+        <Button
+          size="sm"
+          onClick={() => {
+            setEditing(null);
+            setShowForm((v) => !v);
+          }}
+        >
           <Plus className="h-4 w-4" /> New Rule
         </Button>
       </div>
@@ -278,6 +300,18 @@ export function AlertRulesContent() {
         <Alert variant="destructive">
           <AlertDescription>{error}</AlertDescription>
         </Alert>
+      )}
+
+      {editing && (
+        <EditAlertRuleForm
+          key={editing.rule.id}
+          item={editing}
+          onSaved={() => {
+            setEditing(null);
+            load();
+          }}
+          onCancel={() => setEditing(null)}
+        />
       )}
 
       {showForm && (
@@ -789,6 +823,188 @@ export function NewAlertRuleForm({
         </Button>
         <Button type="submit" size="sm" disabled={submitting}>
           {submitting ? "Saving…" : "Save Rule"}
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+// Edits an existing rule's settings in place. The target (resource,
+// container/pod) and alert type are fixed once created -- the update API
+// only changes these settings, so they are shown read-only. The API
+// replaces every field on save, so every field is sent, pre-filled with
+// the rule's current values.
+export function EditAlertRuleForm({
+  item,
+  onSaved,
+  onCancel,
+}: {
+  item: AlertRuleListItem;
+  onSaved: () => void;
+  onCancel: () => void;
+}) {
+  const rule = item.rule;
+  const [notificationPolicies, setNotificationPolicies] = useState<NotificationPolicy[]>([]);
+  const [condition, setCondition] = useState<AlertCondition>(rule.condition);
+  const [threshold, setThreshold] = useState(String(rule.threshold));
+  const [recoveryThreshold, setRecoveryThreshold] = useState(rule.recovery_threshold === undefined || rule.recovery_threshold === null ? "" : String(rule.recovery_threshold));
+  const [durationSeconds, setDurationSeconds] = useState(String(rule.duration_seconds));
+  const [severity, setSeverity] = useState<AlertSeverity>(rule.severity);
+  const [notificationPolicyId, setNotificationPolicyId] = useState(rule.notification_policy_id ?? "");
+  const [enabled, setEnabled] = useState(rule.enabled);
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    listNotificationPolicies()
+      .then((res) => setNotificationPolicies(res.notification_policies))
+      .catch(() => setNotificationPolicies([]));
+  }, []);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    const thresholdNum = Number(threshold);
+    const durationNum = Number(durationSeconds);
+    const recoveryNum = recoveryThreshold.trim() === "" ? undefined : Number(recoveryThreshold);
+    if (threshold.trim() === "" || Number.isNaN(thresholdNum)) {
+      setError("Threshold must be a number.");
+      return;
+    }
+    if (recoveryNum !== undefined && Number.isNaN(recoveryNum)) {
+      setError("Recovery threshold must be a number, or left empty.");
+      return;
+    }
+    if (!Number.isFinite(durationNum) || durationNum < 0) {
+      setError("Duration must be a non-negative number of seconds.");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await updateAlertRule(rule.id, {
+        condition,
+        threshold: thresholdNum,
+        recovery_threshold: recoveryNum,
+        duration_seconds: durationNum,
+        severity,
+        notification_policy_id: notificationPolicyId || undefined,
+        enabled,
+      });
+      onSaved();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Failed to save alert rule.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="flex flex-col gap-4 rounded-lg border border-sky-200 bg-white p-4 ring-1 ring-sky-100">
+      <div>
+        <h3 className="text-sm font-semibold text-slate-900">Edit Alert Rule</h3>
+        <p className="mt-1 text-xs text-slate-500">
+          <span className="font-medium text-slate-700">{item.resource_name}</span> · {rule.alert_type.replace(/_/g, " ")} ·{" "}
+          {RESOURCE_TYPE_SECTION[item.resource_type as keyof typeof RESOURCE_TYPE_SECTION] ?? item.resource_type}. The resource and
+          alert type can&apos;t be changed -- create a new rule to target something else.
+        </p>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div className="flex flex-col gap-1.5">
+          <Label>Condition</Label>
+          <Select value={condition} onValueChange={(v) => setCondition((v as AlertCondition) ?? rule.condition)} disabled={submitting}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {CONDITIONS.map((c) => (
+                <SelectItem key={c} value={c}>
+                  {c}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <Label>Threshold</Label>
+          <Input type="number" step="any" value={threshold} onChange={(e) => setThreshold(e.target.value)} disabled={submitting} />
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <Label>Duration (seconds)</Label>
+          <Input type="number" min={0} value={durationSeconds} onChange={(e) => setDurationSeconds(e.target.value)} disabled={submitting} />
+          <p className="text-xs text-slate-500">How long the breach must hold before an alert is raised.</p>
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <Label>Recovery threshold (optional)</Label>
+          <Input
+            type="number"
+            step="any"
+            value={recoveryThreshold}
+            onChange={(e) => setRecoveryThreshold(e.target.value)}
+            placeholder="Same as threshold"
+            disabled={submitting}
+          />
+          <p className="text-xs text-slate-500">The alert resolves only once the value is back past this -- avoids flapping.</p>
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <Label>Severity</Label>
+          <Select value={severity} onValueChange={(v) => setSeverity((v as AlertSeverity) ?? rule.severity)} disabled={submitting}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {SEVERITIES.map((sv) => (
+                <SelectItem key={sv} value={sv}>
+                  {sv}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <Label>Notification Policy</Label>
+          <Select value={notificationPolicyId || ALL} onValueChange={(v) => setNotificationPolicyId(v === ALL ? "" : v ?? "")} disabled={submitting}>
+            <SelectTrigger>
+              <SelectValue placeholder="Use the default policy" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL}>Use the default policy</SelectItem>
+              {notificationPolicies.map((np) => {
+                const channels = configuredChannels(np);
+                return (
+                  <SelectItem key={np.id} value={np.id}>
+                    {np.name}
+                    {np.is_default ? " (default)" : ""} — {channels.length > 0 ? channels.map((c) => CHANNEL_LABELS[c] ?? c).join(", ") : "no channels configured"}
+                  </SelectItem>
+                );
+              })}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      <label className="flex w-fit items-center gap-2 text-sm text-slate-700">
+        <Checkbox checked={enabled} onCheckedChange={(v) => setEnabled(v === true)} disabled={submitting} />
+        Enabled
+      </label>
+
+      {error && (
+        <Alert variant="destructive">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+
+      <div className="flex justify-end gap-2">
+        <Button type="button" variant="outline" size="sm" onClick={onCancel} disabled={submitting}>
+          Cancel
+        </Button>
+        <Button type="submit" size="sm" disabled={submitting}>
+          {submitting ? "Saving…" : "Save Changes"}
         </Button>
       </div>
     </form>
