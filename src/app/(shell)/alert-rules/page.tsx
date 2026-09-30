@@ -253,9 +253,10 @@ export function AlertRulesContent() {
             <SlidersHorizontal className="h-5 w-5" /> Alert Rules
           </h2>
           <p className="text-sm text-slate-500">
-            Configure when a VM, database, object storage bucket, Docker container/host, or Kubernetes pod/cluster
-            metric breach -- or a burst of error-level logs -- should raise an alert. Rules never execute anything --
-            they only observe and notify.
+            Configure when a metric breach on a Compute Inventory or Host Metrics &amp; Logs VM, a Database
+            Observability database, an Object Storage (S3) bucket, a Docker Monitoring host/container or a
+            Kubernetes Monitoring cluster/pod -- or a burst of error-level logs from Log Management -- should raise
+            an alert. Rules never execute anything -- they only observe and notify.
           </p>
         </div>
         <Button size="sm" onClick={() => setShowForm((v) => !v)}>
