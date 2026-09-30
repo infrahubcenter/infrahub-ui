@@ -60,11 +60,24 @@ import {
   type VM,
 } from "@/lib/api";
 import {
-  RESOURCE_TYPE_LABEL,
-  RESOURCE_TYPE_NOUN,
+  RESOURCE_TYPE_CHOICE_ITEM,
+  RESOURCE_TYPE_CHOICE_LABEL,
+  RESOURCE_TYPE_CHOICE_WHERE,
   RESOURCE_TYPE_SECTION,
-  RESOURCE_TYPE_WHERE,
+  choiceToType,
+  vmChoiceFor,
+  type ResourceTypeChoice,
 } from "@/lib/resource-labels";
+
+// Resource Type dropdown order -- the sidebar's own order.
+const RESOURCE_CHOICE_ORDER: ResourceTypeChoice[] = [
+  "VM_INVENTORY",
+  "VM_HOST_METRICS",
+  "DATABASE",
+  "OBJECT_STORAGE",
+  "DOCKER_HOST",
+  "K8S_CLUSTER",
+];
 
 const CONDITIONS: AlertCondition[] = [">", "<", ">=", "<=", "=="];
 const SEVERITIES: AlertSeverity[] = ["INFO", "WARNING", "CRITICAL"];
@@ -336,6 +349,9 @@ export function NewAlertRuleForm({
   const [notificationPolicies, setNotificationPolicies] = useState<NotificationPolicy[]>([]);
 
   const [resourceKind, setResourceKind] = useState<AlertRuleResourceKind>(lockedResourceKind ?? "VM");
+  const [typeChoice, setTypeChoice] = useState<ResourceTypeChoice>(
+    lockedResourceKind && lockedResourceKind !== "VM" ? lockedResourceKind : "VM_INVENTORY"
+  );
   const [resourceId, setResourceId] = useState(lockedResourceId ?? "");
   const [containerId, setContainerId] = useState("");
   const [k8sPodId, setK8sPodId] = useState("");
@@ -394,8 +410,10 @@ export function NewAlertRuleForm({
     }
   }, [resourceKind, resourceId]);
 
-  const resourceCounts: Record<AlertRuleResourceKind, number> = {
-    VM: vms.length,
+  const choiceVMs = vms.filter((vm) => vmChoiceFor(vm) === typeChoice);
+  const resourceCounts: Record<ResourceTypeChoice, number> = {
+    VM_INVENTORY: vms.filter((vm) => vmChoiceFor(vm) === "VM_INVENTORY").length,
+    VM_HOST_METRICS: vms.filter((vm) => vmChoiceFor(vm) === "VM_HOST_METRICS").length,
     DATABASE: databases.length,
     OBJECT_STORAGE: objectStorages.length,
     DOCKER_HOST: dockerHosts.length,
@@ -417,6 +435,11 @@ export function NewAlertRuleForm({
   const metricTemplates = availableTemplates.filter((t) => !isLogBasedAlertTemplate(t));
   const logTemplates = availableTemplates.filter(isLogBasedAlertTemplate);
   const selectedTemplate = availableTemplates.find((t) => t.type === templateType);
+
+  function handleTypeChoiceChange(choice: ResourceTypeChoice) {
+    setTypeChoice(choice);
+    handleResourceKindChange(choiceToType(choice));
+  }
 
   function handleResourceKindChange(kind: AlertRuleResourceKind) {
     setResourceKind(kind);
@@ -505,14 +528,14 @@ export function NewAlertRuleForm({
           <>
             <div className="flex flex-col gap-1.5">
               <Label>Resource Type</Label>
-              <Select value={resourceKind} onValueChange={(v) => handleResourceKindChange((v as AlertRuleResourceKind) ?? "VM")} disabled={submitting}>
+              <Select value={typeChoice} onValueChange={(v) => handleTypeChoiceChange((v as ResourceTypeChoice) ?? "VM_INVENTORY")} disabled={submitting}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {RESOURCE_KIND_ORDER.map((k) => (
-                    <SelectItem key={k} value={k}>
-                      {RESOURCE_TYPE_LABEL[k]} ({resourceCounts[k]})
+                  {RESOURCE_CHOICE_ORDER.map((c) => (
+                    <SelectItem key={c} value={c}>
+                      {RESOURCE_TYPE_CHOICE_LABEL[c]} ({resourceCounts[c]})
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -520,7 +543,7 @@ export function NewAlertRuleForm({
             </div>
 
             <div className="flex flex-col gap-1.5">
-              <Label>{RESOURCE_TYPE_NOUN[resourceKind]}</Label>
+              <Label>{RESOURCE_TYPE_CHOICE_ITEM[typeChoice]}</Label>
               <Select
                 value={resourceId}
                 onValueChange={(v) => {
@@ -534,14 +557,14 @@ export function NewAlertRuleForm({
               >
                 <SelectTrigger>
                   <SelectValue
-                    placeholder={resourceCounts[resourceKind] === 0 ? `No ${RESOURCE_TYPE_NOUN[resourceKind]} registered yet` : `Select a ${RESOURCE_TYPE_NOUN[resourceKind]}`}
+                    placeholder={resourceCounts[typeChoice] === 0 ? `No ${RESOURCE_TYPE_CHOICE_ITEM[typeChoice]} registered yet` : `Select a ${RESOURCE_TYPE_CHOICE_ITEM[typeChoice]}`}
                   />
                 </SelectTrigger>
                 <SelectContent>
                   {resourceKind === "VM" &&
-                    vms.map((vm) => (
+                    choiceVMs.map((vm) => (
                       <SelectItem key={vm.id} value={vm.id}>
-                        {vm.name} — {vm.address || "agent-only"} · {vm.workspace}
+                        {vm.name} — {vm.address || vm.agent_hostname || "VM Agent"} · {vm.workspace}
                       </SelectItem>
                     ))}
                   {resourceKind === "DATABASE" &&
@@ -570,8 +593,8 @@ export function NewAlertRuleForm({
                     ))}
                 </SelectContent>
               </Select>
-              {resourceCounts[resourceKind] === 0 && (
-                <p className="text-xs text-slate-500">Register one under {RESOURCE_TYPE_WHERE[resourceKind]}.</p>
+              {resourceCounts[typeChoice] === 0 && (
+                <p className="text-xs text-slate-500">Register one under {RESOURCE_TYPE_CHOICE_WHERE[typeChoice]}.</p>
               )}
             </div>
           </>
@@ -654,7 +677,7 @@ export function NewAlertRuleForm({
               )}
               {logTemplates.length > 0 && (
                 <SelectGroup>
-                  <SelectLabel>Logs</SelectLabel>
+                  <SelectLabel>Log Management</SelectLabel>
                   {renderTemplateOptions(logTemplates)}
                 </SelectGroup>
               )}

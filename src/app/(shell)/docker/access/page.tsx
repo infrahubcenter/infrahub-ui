@@ -60,12 +60,18 @@ import {
   type Workspace,
   type WorkspaceMember,
 } from "@/lib/api";
-import { RESOURCE_TYPE_LABEL, RESOURCE_TYPE_NOUN } from "@/lib/resource-labels";
+import {
+  RESOURCE_TYPE_CHOICE_ITEM,
+  RESOURCE_TYPE_CHOICE_LABEL,
+  choiceToType,
+  vmChoiceFor,
+  type ResourceTypeChoice,
+} from "@/lib/resource-labels";
 
 const PERMISSION_LABELS: Record<DockerAccessPermission, string> = {
-  "docker.monitor": "Docker Monitoring (view metrics)",
+  "docker.monitor": "Docker Monitoring (view)",
   "docker.logs": "Docker Log Explorer (view/tail)",
-  "k8s.monitor": "Kubernetes Monitoring (view pods)",
+  "k8s.monitor": "Kubernetes Monitoring (view)",
   "k8s.logs": "Kubernetes Log Explorer (view/tail)",
 };
 
@@ -129,9 +135,10 @@ function DockerAccessContent() {
         </h2>
         <p className="text-sm text-slate-500">
           Grant a Member access, organized like the sidebar: Workspaces (every resource in a workspace),
-          Infrastructure Monitoring, Log Management, or direct access to one Virtual Machine (Compute), Database
-          (Database Observability) or Bucket (Object Storage (S3)). Admins and Owners always have full access and
-          never need a grant.
+          Infrastructure Monitoring (Docker Monitoring, Kubernetes Monitoring), Log Management (Docker Log Explorer,
+          Kubernetes Log Explorer), or direct access to one Compute Inventory VM, Host Metrics &amp; Logs VM, Database
+          Observability database or Object Storage (S3) bucket. Admins and Owners always have full access and never
+          need a grant.
         </p>
       </div>
 
@@ -140,7 +147,7 @@ function DockerAccessContent() {
           <TabsTrigger value="workspace">Workspaces</TabsTrigger>
           <TabsTrigger value="monitoring">Infrastructure Monitoring</TabsTrigger>
           <TabsTrigger value="logs">Log Management</TabsTrigger>
-          <TabsTrigger value="resources">Compute, Databases &amp; S3</TabsTrigger>
+          <TabsTrigger value="resources">Compute · Database Observability · Object Storage (S3)</TabsTrigger>
         </TabsList>
         <TabsContent value="workspace">
           <WorkspaceAccessTab members={members} />
@@ -236,8 +243,9 @@ function WorkspaceAccessTab({ members }: { members: UserListItem[] }) {
 
       {!workspaceId ? (
         <p className="text-sm text-slate-500">
-          Pick a workspace to manage its members. A member gets full access to every VM/Database/Object Storage in
-          that workspace.
+          Pick a workspace to manage its members. A member gets full access to everything in that workspace: Compute
+          Inventory and Host Metrics &amp; Logs VMs, Database Observability databases, Object Storage (S3) buckets, and
+          Docker Monitoring / Kubernetes Monitoring resources.
         </p>
       ) : (
         <>
@@ -406,7 +414,7 @@ function MonitoringLogsTab({ kind, members }: { kind: "MONITORING" | "LOGS"; mem
       return;
     }
     if (scope === "resource" && !resourceId) {
-      setFormError(`Select a ${engine === "DOCKER" ? "Virtual Machine or Docker Host" : "Kubernetes Cluster"}.`);
+      setFormError(`Select a ${engine === "DOCKER" ? "Docker Host Onboarding host or Compute Inventory VM" : "Kubernetes Cluster Onboarding cluster"}.`);
       return;
     }
     if (scope === "folder" && !folderId) {
@@ -493,7 +501,7 @@ function MonitoringLogsTab({ kind, members }: { kind: "MONITORING" | "LOGS"; mem
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="workspace">Whole Workspace</SelectItem>
-                <SelectItem value="resource">Specific {engine === "DOCKER" ? "Virtual Machine or Docker Host" : "Kubernetes Cluster"}</SelectItem>
+                <SelectItem value="resource">Specific {engine === "DOCKER" ? "Docker Host Onboarding host or Compute Inventory VM" : "Kubernetes Cluster Onboarding cluster"}</SelectItem>
                 <SelectItem value="folder">Specific Folder</SelectItem>
                 <SelectItem value="dashboard">Specific Dashboard</SelectItem>
               </SelectContent>
@@ -523,7 +531,7 @@ function MonitoringLogsTab({ kind, members }: { kind: "MONITORING" | "LOGS"; mem
 
           {scope === "resource" && (
             <div>
-              <Label htmlFor={`${kind}-resource`}>{engine === "DOCKER" ? "Virtual Machine or Docker Host" : "Kubernetes Cluster"}</Label>
+              <Label htmlFor={`${kind}-resource`}>{engine === "DOCKER" ? "Docker Host Onboarding host or Compute Inventory VM" : "Kubernetes Cluster Onboarding cluster"}</Label>
               <Select value={resourceId} onValueChange={(v) => setResourceId(v ?? "")} disabled={!workspaceId}>
                 <SelectTrigger id={`${kind}-resource`}>
                   <SelectValue placeholder={workspaceId ? "Select a resource" : "Pick a workspace first"} />
@@ -666,6 +674,10 @@ function MonitoringLogsTab({ kind, members }: { kind: "MONITORING" | "LOGS"; mem
 // same listPermissions ledger /permissions already reads.
 
 type ResourceKind = "VM" | "DATABASE" | "OBJECT_STORAGE";
+// Direct grants exist for VMs, databases and buckets; VMs are offered under
+// both sidebar sections they appear in.
+type ResourceChoice = Extract<ResourceTypeChoice, "VM_INVENTORY" | "VM_HOST_METRICS" | "DATABASE" | "OBJECT_STORAGE">;
+const RESOURCE_CHOICES: ResourceChoice[] = ["VM_INVENTORY", "VM_HOST_METRICS", "DATABASE", "OBJECT_STORAGE"];
 
 function revokeByType(type: ResourceKind, resourceId: string, userId: string) {
   switch (type) {
@@ -685,7 +697,10 @@ function defaultPermissionFor(type: ResourceKind): string {
 }
 
 function ResourcesAccessTab({ members }: { members: UserListItem[] }) {
-  const [resourceType, setResourceType] = useState<ResourceKind>("VM");
+  // The picker splits VMs by sidebar section (Compute Inventory vs Host
+  // Metrics & Logs); both are the API's "VM" resource type.
+  const [typeChoice, setTypeChoice] = useState<ResourceChoice>("VM_INVENTORY");
+  const resourceType = choiceToType(typeChoice) as ResourceKind;
   const [vms, setVms] = useState<VM[]>([]);
   const [databases, setDatabases] = useState<DatabaseListItem[]>([]);
   const [storages, setStorages] = useState<ObjectStorageListItem[]>([]);
@@ -714,15 +729,17 @@ function ResourcesAccessTab({ members }: { members: UserListItem[] }) {
     loadGrants();
   }, [loadGrants]);
 
-  function handleTypeChange(type: ResourceKind) {
-    setResourceType(type);
+  function handleTypeChange(choice: ResourceChoice) {
+    setTypeChoice(choice);
     setResourceId("");
-    setPermissions(new Set([defaultPermissionFor(type)]));
+    setPermissions(new Set([defaultPermissionFor(choiceToType(choice) as ResourceKind)]));
   }
 
   const resourceOptions =
     resourceType === "VM"
-      ? vms.map((v) => ({ id: v.id, label: `${v.name} — ${v.address || "agent-only"} · ${v.workspace}` }))
+      ? vms
+          .filter((v) => vmChoiceFor(v) === typeChoice)
+          .map((v) => ({ id: v.id, label: `${v.name} — ${v.address || v.agent_hostname || "VM Agent"} · ${v.workspace}` }))
       : resourceType === "DATABASE"
         ? databases.map((d) => ({ id: d.id, label: `${d.name ?? d.host} — ${d.type} · ${d.workspace_name ?? "-"}` }))
         : storages.map((s) => ({ id: s.id, label: `${s.name} — ${s.bucket} · ${s.workspace_name ?? "-"}` }));
@@ -779,19 +796,21 @@ function ResourcesAccessTab({ members }: { members: UserListItem[] }) {
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div>
             <Label htmlFor="resources-type">Resource Type</Label>
-            <Select value={resourceType} onValueChange={(v) => handleTypeChange((v as ResourceKind | null) ?? "VM")}>
+            <Select value={typeChoice} onValueChange={(v) => handleTypeChange((v as ResourceChoice | null) ?? "VM_INVENTORY")}>
               <SelectTrigger id="resources-type">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="VM">{RESOURCE_TYPE_LABEL.VM}</SelectItem>
-                <SelectItem value="DATABASE">{RESOURCE_TYPE_LABEL.DATABASE}</SelectItem>
-                <SelectItem value="OBJECT_STORAGE">{RESOURCE_TYPE_LABEL.OBJECT_STORAGE}</SelectItem>
+                {RESOURCE_CHOICES.map((c) => (
+                  <SelectItem key={c} value={c}>
+                    {RESOURCE_TYPE_CHOICE_LABEL[c]}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
           <div>
-            <Label htmlFor="resources-resource">{RESOURCE_TYPE_NOUN[resourceType]}</Label>
+            <Label htmlFor="resources-resource">{RESOURCE_TYPE_CHOICE_ITEM[typeChoice]}</Label>
             <Select value={resourceId} onValueChange={(v) => setResourceId(v ?? "")}>
               <SelectTrigger id="resources-resource">
                 <SelectValue placeholder="Select a resource" />
