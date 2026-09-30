@@ -22,7 +22,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { StatusBadge } from "@/components/infrastructure/status-badge";
-import { isAdminRole, listVMs, type ResourceStatus, type VM } from "@/lib/api";
+import { isAdminRole, isAgentOnlyVM, listVMs, type ResourceStatus, type VM } from "@/lib/api";
 
 const ALL = "__all__";
 
@@ -35,8 +35,10 @@ export default function VMsPage() {
   const [statusFilter, setStatusFilter] = useState<string>(ALL);
 
   useEffect(() => {
+    // Compute Inventory is the SSH-managed fleet only; agent-only VMs live
+    // under Host Metrics & Logs (see isAgentOnlyVM).
     listVMs()
-      .then((res) => setVms(res.vms))
+      .then((res) => setVms(res.vms.filter((vm) => !isAgentOnlyVM(vm))))
       .catch(() => setError("Failed to load VMs."));
   }, []);
 
@@ -61,7 +63,7 @@ export default function VMsPage() {
         <div>
           <h2 className="text-lg font-semibold text-slate-900">Virtual Machines</h2>
           <p className="text-sm text-slate-500">
-            {isAdminRole(user?.role) ? "Every registered VM." : "VMs you have access to."}
+            {isAdminRole(user?.role) ? "Every SSH-managed VM." : "SSH-managed VMs you have access to."} Agent-only VMs are under Host Metrics &amp; Logs.
           </p>
         </div>
         {isAdminRole(user?.role) && (

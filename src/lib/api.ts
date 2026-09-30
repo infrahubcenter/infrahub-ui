@@ -223,6 +223,14 @@ export function getMe() {
 
 // --- VMs ---
 
+// An agent-only VM (created from Host Metrics & Logs' "Connect VM") has no
+// SSH address and never will -- it belongs to Host Metrics & Logs only.
+// Compute Inventory and Patch Management are SSH-managed and list only VMs
+// that have an address.
+export function isAgentOnlyVM(vm: Pick<VM, "address">): boolean {
+  return !vm.address;
+}
+
 export function listVMs() {
   return apiFetch<{ vms: VM[] }>("/api/vms");
 }

@@ -6,7 +6,7 @@ import { Search, Server } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { StatusBadge } from "@/components/infrastructure/status-badge";
-import { listVMs, type VM } from "@/lib/api";
+import { isAgentOnlyVM, listVMs, type VM } from "@/lib/api";
 
 // Flat "pick a VM" list shared by the Metrics-and-Logs and Updates trees'
 // index pages -- neither needs the full Virtual Machine tab's workspace/
@@ -15,6 +15,7 @@ export function VMPickerTable({
   linkPrefix,
   emptyHint,
   linkSuffix = "",
+  sshOnly = false,
 }: {
   linkPrefix: string;
   emptyHint: string;
@@ -22,6 +23,9 @@ export function VMPickerTable({
   // the Metrics-and-Logs Logs tab can deep-link straight into the
   // per-VM page's Logs sub-tab instead of landing on Metrics by default.
   linkSuffix?: string;
+  // Hide agent-only VMs (no SSH address) -- Patch Management runs over SSH,
+  // so it lists exactly the Compute Inventory VMs.
+  sshOnly?: boolean;
 }) {
   const [vms, setVms] = useState<VM[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -29,9 +33,9 @@ export function VMPickerTable({
 
   useEffect(() => {
     listVMs()
-      .then((res) => setVms(res.vms))
+      .then((res) => setVms(sshOnly ? res.vms.filter((vm) => !isAgentOnlyVM(vm)) : res.vms))
       .catch(() => setError("Failed to load VMs."));
-  }, []);
+  }, [sshOnly]);
 
   const filtered = useMemo(() => {
     if (!vms) return [];
