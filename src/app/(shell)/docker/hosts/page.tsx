@@ -6,7 +6,15 @@ import { RouteGuard } from "@/components/auth/route-guard";
 import { DeleteResourceDialog } from "@/components/infrastructure/delete-resource-dialog";
 import { CopyButton } from "@/components/infrastructure/copy-button";
 import { InstallNotes } from "@/components/infrastructure/install-notes";
-import { DOCKER_HOST_PERMISSION_NOTES, formatShellCommand } from "@/lib/agent-install-command";
+import {
+  DOCKER_HOST_SHELL_OPTIONS,
+  buildDockerHostCommand,
+  detectDockerHostShell,
+  dockerHostPermissionNotes,
+  formatShellCommand,
+  parseDockerHostRunCommand,
+  type DockerHostShell,
+} from "@/lib/agent-install-command";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -264,6 +272,12 @@ function AgentTokenReveal({
   runCommand: string;
   onDismiss: () => void;
 }) {
+  // Defaults to the admin's own OS; the target machine may differ, so it
+  // stays switchable. Lazy initializer: navigator only exists client-side.
+  const [shell, setShell] = useState<DockerHostShell>(() => detectDockerHostShell());
+  const parts = parseDockerHostRunCommand(runCommand);
+  // Fall back to the backend's own line (reflowed) if it ever changes shape.
+  const command = parts ? buildDockerHostCommand(shell, parts) : formatShellCommand(runCommand);
   return (
     <Alert>
       <AlertDescription>
@@ -274,16 +288,29 @@ function AgentTokenReveal({
           <code className="block flex-1 break-all rounded bg-slate-100 p-2 text-xs">{token}</code>
           <CopyButton value={token} />
         </div>
+        <div className="mt-3 flex flex-col gap-1.5">
+          <Label htmlFor="docker-host-shell">Where will you run it?</Label>
+          <Select value={shell} onValueChange={(v) => setShell((v ?? "LINUX") as DockerHostShell)}>
+            <SelectTrigger id="docker-host-shell" className="w-64">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {DOCKER_HOST_SHELL_OPTIONS.map((o) => (
+                <SelectItem key={o.value} value={o.value}>
+                  {o.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
         <p className="mt-2 text-xs text-slate-500">
-          Run this on any machine with Docker, wherever you want to monitor from:
+          Run this on the machine with Docker you want to monitor, in the terminal selected above:
         </p>
         <div className="mt-1 flex items-start gap-2">
-          <pre className="flex-1 overflow-x-auto whitespace-pre rounded bg-slate-900 p-2 text-xs text-slate-100">
-            {formatShellCommand(runCommand)}
-          </pre>
-          <CopyButton value={formatShellCommand(runCommand)} />
+          <pre className="flex-1 overflow-x-auto whitespace-pre rounded bg-slate-900 p-2 text-xs text-slate-100">{command}</pre>
+          <CopyButton value={command} />
         </div>
-        <InstallNotes notes={DOCKER_HOST_PERMISSION_NOTES} />
+        <InstallNotes notes={dockerHostPermissionNotes(shell)} />
         <Button variant="ghost" size="sm" className="mt-2" onClick={onDismiss}>
           Dismiss
         </Button>

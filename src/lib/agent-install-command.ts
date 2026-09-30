@@ -236,13 +236,6 @@ export function vmAgentPermissionNotes(os: AgentOS, method: AgentInstallMethod):
   ];
 }
 
-// Docker Host agent (the command comes from the backend's run_command).
-export const DOCKER_HOST_PERMISSION_NOTES: string[] = [
-  ...DOCKER_LINUX_NOTES,
-  "Docker Desktop (Windows/macOS): start Docker Desktop first. In PowerShell, replace each trailing \\ with a backtick (`) and drop MSYS_NO_PATHCONV=1.",
-  "The host needs outbound access to the backend URL in the command; no inbound port is needed.",
-];
-
 // Kubernetes agent.
 export const K8S_PERMISSION_NOTES: string[] = [
   "kubectl must point at the cluster you want to monitor: kubectl config current-context",
@@ -279,4 +272,133 @@ export function formatShellCommand(cmd: string): string {
     }
   }
   return lines.join(SH_CONT);
+}
+
+// --- Docker Host agent: one command per OS / shell ---
+//
+// The backend returns a single POSIX `docker run` line (run_command). The
+// same container runs everywhere Docker does, but each shell needs its own
+// syntax -- most importantly Git Bash on Windows, which rewrites
+// /var/run/docker.sock into "C:\Program Files\Git\var\..." unless
+// MSYS_NO_PATHCONV=1 is set ("mkdir C:\Program Files\Git\var: Access is
+// denied"). So the console parses the backend's command and re-renders it
+// for the shell the operator picks.
+
+export type DockerHostShell = "LINUX" | "MAC" | "WIN_POWERSHELL" | "WIN_CMD" | "WIN_GITBASH";
+
+export const DOCKER_HOST_SHELL_OPTIONS: { value: DockerHostShell; label: string }[] = [
+  { value: "LINUX", label: "Linux (bash)" },
+  { value: "MAC", label: "macOS (Terminal)" },
+  { value: "WIN_POWERSHELL", label: "Windows (PowerShell)" },
+  { value: "WIN_CMD", label: "Windows (Command Prompt)" },
+  { value: "WIN_GITBASH", label: "Windows (Git Bash)" },
+];
+
+// Best guess from the browser the admin is using right now; they can
+// always switch in the picker (the target machine may differ).
+export function detectDockerHostShell(): DockerHostShell {
+  if (typeof navigator === "undefined") return "LINUX";
+  const ua = `${navigator.userAgent} ${navigator.platform ?? ""}`.toLowerCase();
+  if (ua.includes("win")) return "WIN_POWERSHELL";
+  if (ua.includes("mac")) return "MAC";
+  return "LINUX";
+}
+
+export type DockerRunParts = { backendUrl: string; token: string; image: string };
+
+// Pulls the backend URL, token and image out of the backend's run_command,
+// so the image tag stays whatever the API currently pins.
+export function parseDockerHostRunCommand(cmd: string): DockerRunParts | null {
+  const url = cmd.match(/INFRAHUB_BACKEND_URL='([^']*)'/)?.[1] ?? cmd.match(/INFRAHUB_BACKEND_URL=(\S+)/)?.[1];
+  const token = cmd.match(/INFRAHUB_AGENT_TOKEN='([^']*)'/)?.[1] ?? cmd.match(/INFRAHUB_AGENT_TOKEN=(\S+)/)?.[1];
+  const image = cmd.trim().split(/\s+/).pop();
+  if (!url || !token || !image || image.startsWith("-")) return null;
+  return { backendUrl: url, token, image };
+}
+
+function cmdQuote(s: string): string {
+  // Command Prompt has no single quotes; wrap the whole KEY=value in "".
+  return `"${s.replace(/"/g, '\\"')}"`;
+}
+
+export function buildDockerHostCommand(shell: DockerHostShell, parts: DockerRunParts): string {
+  const mounts = ["-v /var/run/docker.sock:/var/run/docker.sock", "-v /proc:/host/proc:ro", "-v /:/host/root:ro"];
+  const base = ["--name infrahub-docker-agent", "--restart unless-stopped", ...mounts];
+  switch (shell) {
+    case "WIN_POWERSHELL":
+      return [
+        "docker run -d",
+        ...base,
+        `-e INFRAHUB_BACKEND_URL=${psQuote(parts.backendUrl)}`,
+        `-e INFRAHUB_AGENT_TOKEN=${psQuote(parts.token)}`,
+        parts.image,
+      ].join(PS_CONT);
+    case "WIN_CMD":
+      return [
+        "docker run -d",
+        ...base,
+        `-e ${cmdQuote(`INFRAHUB_BACKEND_URL=${parts.backendUrl}`)}`,
+        `-e ${cmdQuote(`INFRAHUB_AGENT_TOKEN=${parts.token}`)}`,
+        parts.image,
+      ].join(" ^\n  ");
+    case "WIN_GITBASH":
+      return [
+        "MSYS_NO_PATHCONV=1 docker run -d",
+        ...base,
+        `-e INFRAHUB_BACKEND_URL=${posixQuote(parts.backendUrl)}`,
+        `-e INFRAHUB_AGENT_TOKEN=${posixQuote(parts.token)}`,
+        parts.image,
+      ].join(SH_CONT);
+    default:
+      return [
+        "docker run -d",
+        ...base,
+        `-e INFRAHUB_BACKEND_URL=${posixQuote(parts.backendUrl)}`,
+        `-e INFRAHUB_AGENT_TOKEN=${posixQuote(parts.token)}`,
+        parts.image,
+      ].join(SH_CONT);
+  }
+}
+
+const DOCKER_HOST_REACH = "The machine needs outbound access to the backend URL in the command; no inbound port is needed.";
+const DOCKER_HOST_REINSTALL = "Already installed once? Remove the old container first: docker rm -f infrahub-docker-agent";
+
+export function dockerHostPermissionNotes(shell: DockerHostShell): string[] {
+  switch (shell) {
+    case "LINUX":
+      return [...DOCKER_LINUX_NOTES, DOCKER_HOST_REINSTALL, DOCKER_HOST_REACH];
+    case "MAC":
+      return [
+        "Start Docker Desktop first and wait until it says it is running.",
+        "\"permission denied ... docker.sock\": Docker Desktop → Settings → Advanced → enable \"Allow the default Docker socket to be used\" (needs your admin password).",
+        "Host metrics describe Docker Desktop's Linux VM, not the Mac itself; container metrics and logs are exact.",
+        DOCKER_HOST_REINSTALL,
+        DOCKER_HOST_REACH,
+      ];
+    case "WIN_POWERSHELL":
+      return [
+        "Paste into Windows PowerShell or PowerShell 7 -- not Command Prompt, not Git Bash (each has its own option above).",
+        "Start Docker Desktop first and keep it on Linux containers (tray icon → \"Switch to Linux containers\" if it offers that).",
+        "\"Access is denied\" / \"permission denied ... docker_engine\": run PowerShell as Administrator, or add your account to the local docker-users group (Computer Management → Local Users and Groups) and sign out/in.",
+        "Host metrics describe Docker Desktop's WSL 2 VM, not Windows itself; container metrics and logs are exact.",
+        DOCKER_HOST_REINSTALL,
+        DOCKER_HOST_REACH,
+      ];
+    case "WIN_CMD":
+      return [
+        "Paste into Command Prompt (cmd.exe). Lines end with ^ -- paste the whole block at once.",
+        "Start Docker Desktop first and keep it on Linux containers.",
+        "\"Access is denied\": open Command Prompt with \"Run as administrator\", or add your account to the local docker-users group and sign out/in.",
+        DOCKER_HOST_REINSTALL,
+        DOCKER_HOST_REACH,
+      ];
+    case "WIN_GITBASH":
+      return [
+        "Keep the MSYS_NO_PATHCONV=1 prefix: without it Git Bash rewrites /var/run/docker.sock into C:\\Program Files\\Git\\var\\... and Docker fails with \"mkdir C:\\Program Files\\Git\\var: Access is denied\".",
+        "Start Docker Desktop first and keep it on Linux containers.",
+        "\"Access is denied\" on the Docker pipe: run Git Bash as Administrator, or add your account to the local docker-users group and sign out/in.",
+        DOCKER_HOST_REINSTALL,
+        DOCKER_HOST_REACH,
+      ];
+  }
 }
