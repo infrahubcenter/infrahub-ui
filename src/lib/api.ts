@@ -24,15 +24,78 @@ export class ApiError extends Error {
   }
 }
 
-async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
-    ...init,
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-      ...init?.headers,
-    },
+// --- Session renewal ---
+// The access cookie lives 15 minutes; the refresh cookie lives 7 days and is
+// rotated (and its 7 days restarted) on every renewal. So a signed-in user
+// stays signed in until they sign out: requests that hit an expired access
+// token renew the session once and retry, and AuthProvider also renews on a
+// timer and whenever the tab becomes visible again.
+//
+// The API treats a refresh token used twice as stolen and ends every
+// session, so renewals are serialized: one at a time per tab (refreshing),
+// and across tabs via the Web Locks API, skipping a renewal another tab
+// finished moments ago.
+const SESSION_RENEW_KEY = "infrahub:session-renewed-at";
+const NO_RENEW_PATHS = ["/api/auth/login", "/api/auth/refresh", "/api/auth/logout"];
+let refreshing: Promise<boolean> | null = null;
+
+function lastRenewal(): number {
+  try {
+    return Number(localStorage.getItem(SESSION_RENEW_KEY) ?? 0);
+  } catch {
+    return 0;
+  }
+}
+
+function markSessionRenewed(at: number) {
+  try {
+    localStorage.setItem(SESSION_RENEW_KEY, String(at));
+  } catch {
+    // storage unavailable
+  }
+}
+
+async function renewOnce(): Promise<boolean> {
+  if (Date.now() - lastRenewal() < 20_000) return true; // another tab just did it
+  try {
+    const res = await fetch(`${API_BASE}/api/auth/refresh`, { method: "POST", credentials: "include" });
+    if (res.ok) markSessionRenewed(Date.now());
+    return res.ok;
+  } catch {
+    return false; // offline: keep the session, try again later
+  }
+}
+
+export function refreshSession(): Promise<boolean> {
+  refreshing ??= (async () => {
+    const locks = typeof navigator !== "undefined" ? navigator.locks : undefined;
+    return locks ? locks.request("infrahub-session-renew", renewOnce) : renewOnce();
+  })().finally(() => {
+    refreshing = null;
   });
+  return refreshing;
+}
+
+// Milliseconds since the session was last renewed (by any tab).
+export function msSinceSessionRenewal(): number {
+  return Date.now() - lastRenewal();
+}
+
+async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  const send = () =>
+    fetch(`${API_BASE}${path}`, {
+      ...init,
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+        ...init?.headers,
+      },
+    });
+
+  let res = await send();
+  if (res.status === 401 && !NO_RENEW_PATHS.includes(path.split("?")[0]) && (await refreshSession())) {
+    res = await send();
+  }
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({}) as { error?: string });
@@ -190,11 +253,13 @@ export type Resource = {
 
 // --- Auth ---
 
-export function login(email: string, password: string) {
-  return apiFetch<User>("/api/auth/login", {
+export async function login(email: string, password: string) {
+  const user = await apiFetch<User>("/api/auth/login", {
     method: "POST",
     body: JSON.stringify({ email, password }),
   });
+  markSessionRenewed(Date.now());
+  return user;
 }
 
 export type OAuthProvider = "github" | "google";
@@ -214,7 +279,8 @@ export function oauthStartUrl(provider: OAuthProvider): string {
   return `${API_BASE}/api/auth/oauth/${provider}/start`;
 }
 
-export function logout() {
+export async function logout() {
+  markSessionRenewed(0);
   return apiFetch<{ status: string }>("/api/auth/logout", { method: "POST" });
 }
 

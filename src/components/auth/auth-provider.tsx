@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
-import { ApiError, getMe, logout as apiLogout, type User } from "@/lib/api";
+import { ApiError, getMe, logout as apiLogout, msSinceSessionRenewal, refreshSession, type User } from "@/lib/api";
 import { clearWsTicket, refreshWsTicket, startWsTicketRefresh } from "@/lib/ws";
 
 type AuthState = {
@@ -51,6 +51,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!user) return;
     return startWsTicketRefresh();
+  }, [user]);
+
+  // Stay signed in until sign-out: renew the session before the 15-minute
+  // access cookie runs out (live views and WebSockets need it valid), and as
+  // soon as the tab is visible again after sleep or a long break.
+  useEffect(() => {
+    if (!user) return;
+    const RENEW_EVERY = 10 * 60_000;
+    const renewIfDue = () => {
+      if (msSinceSessionRenewal() >= RENEW_EVERY) void refreshSession();
+    };
+    const timer = setInterval(renewIfDue, 60_000);
+    const onVisible = () => document.visibilityState === "visible" && renewIfDue();
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", renewIfDue);
+    window.addEventListener("online", renewIfDue);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", renewIfDue);
+      window.removeEventListener("online", renewIfDue);
+    };
   }, [user]);
 
   const logout = useCallback(async () => {
